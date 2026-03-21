@@ -1,4 +1,224 @@
 // ============================================
+// СИСТЕМА ТЕМ
+// ============================================
+
+const themeDefinitions = {
+  'theme-1': {
+    name: '🏛️ Архивный коричневый',
+    colors: {
+      primary: '#5D4A3D',
+      primaryDark: '#4A3A2D',
+      accent: '#8B6F47',
+      light: '#E8DCC8',
+      lightBg: '#F5F2ED',
+      text: '#2C2416',
+      border: '#D4C4B0'
+    }
+  },
+  'theme-2': {
+    name: '🎩 Элегантный серый',
+    colors: {
+      primary: '#52626F',
+      primaryDark: '#3F4A56',
+      accent: '#7A8B99',
+      light: '#E8EAED',
+      lightBg: '#F0F1F3',
+      text: '#2B3E4D',
+      border: '#C5CBD3'
+    }
+  },
+  'theme-3': {
+    name: '💎 Классический бордовый',
+    colors: {
+      primary: '#6B4552',
+      primaryDark: '#563849',
+      accent: '#9B6B7F',
+      light: '#F4E8EE',
+      lightBg: '#F8F3F6',
+      text: '#3D252F',
+      border: '#D4BFD0'
+    }
+  },
+  'theme-4': {
+    name: '🌿 Винтаж зелень',
+    colors: {
+      primary: '#4A5F52',
+      primaryDark: '#3A4D42',
+      accent: '#6B8472',
+      light: '#E8EFE8',
+      lightBg: '#F1F4F0',
+      text: '#2A3F32',
+      border: '#C5D5CB'
+    }
+  },
+  'theme-5': {
+    name: '👑 Знатный синий',
+    colors: {
+      primary: '#3F5670',
+      primaryDark: '#2F4560',
+      accent: '#5A7FA0',
+      light: '#E8ECEF',
+      lightBg: '#EFF2F7',
+      text: '#1F3550',
+      border: '#C5D5E5'
+    }
+  },
+  'theme-6': {
+    name: '✨ Утонченный тёмный',
+    colors: {
+      primary: '#4A4A52',
+      primaryDark: '#3A3A42',
+      accent: '#6B7079',
+      light: '#E8E8EA',
+      lightBg: '#F1F1F3',
+      text: '#2A2A32',
+      border: '#C5C5CD'
+    }
+  }
+};
+
+// Получить текущую тему (по умолчанию theme-4 - Винтаж зелень)
+function getCurrentTheme() {
+  const saved = localStorage.getItem('geneadb-theme');
+  return saved || 'theme-4';
+}
+
+// Применить тему
+function applyTheme(themeId) {
+  const theme = themeDefinitions[themeId];
+  if (!theme) return;
+  
+  localStorage.setItem('geneadb-theme', themeId);
+  
+  // Обновляем CSS переменные
+  const root = document.documentElement;
+  Object.entries(theme.colors).forEach(([key, value]) => {
+    root.style.setProperty(`--theme-${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`, value);
+  });
+  
+  // Обновляем заголовок
+  const header = document.querySelector('.header');
+  if (header) {
+    header.style.background = `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.primaryDark} 100%)`;
+  }
+  
+  // Обновляем блоки
+  document.querySelectorAll('#extracted-text').forEach(box => {
+    box.style.background = theme.colors.light;
+    box.style.borderColor = theme.colors.accent;
+    box.style.color = theme.colors.text;
+  });
+
+  document.querySelectorAll('#url-display').forEach(box => {
+    box.style.background = theme.colors.lightBg;
+    box.style.borderColor = theme.colors.border;
+    box.style.color = theme.colors.text;
+  });
+  
+  // Обновляем кнопки
+  document.querySelectorAll('#copy-btn, #download-btn').forEach(btn => {
+    btn.style.backgroundColor = theme.colors.accent;
+    btn.style.borderColor = theme.colors.accent;
+  });
+
+  // Обновляем метки
+  document.querySelectorAll('.label').forEach(label => {
+    label.style.color = theme.colors.primary;
+  });
+  
+  // Обновляем кнопки в меню тем
+  updateThemeMenu(themeId);
+}
+
+// Осветлить цвет
+function lightenColor(color, percent) {
+  const num = parseInt(color.replace('#', ''), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = Math.min(255, (num >> 16) + amt);
+  const G = Math.min(255, (num >> 8 & 0x00FF) + amt);
+  const B = Math.min(255, (num & 0x0000FF) + amt);
+  return `#${(0x1000000 + (R << 16) + (G << 8) + B).toString(16).slice(1)}`;
+}
+
+// Обновить меню выбора тем
+function updateThemeMenu(currentTheme) {
+  const themeButtons = document.getElementById('theme-buttons');
+  if (!themeButtons) return;
+  
+  themeButtons.innerHTML = '';
+  
+  Object.entries(themeDefinitions).forEach(([themeId, themeDef]) => {
+    const btn = document.createElement('button');
+    btn.textContent = themeDef.name;
+    btn.style.cssText = `
+      padding: 8px 12px !important;
+      border: 0.5px solid ${themeDef.colors.border} !important;
+      background: ${themeDef.colors.lightBg} !important;
+      color: ${themeDef.colors.text} !important;
+      border-radius: 4px !important;
+      cursor: pointer !important;
+      font-size: 12px !important;
+      font-weight: 400 !important;
+      transition: all 0.2s !important;
+      width: 100% !important;
+      margin: 0 !important;
+      text-align: left !important;
+    `;
+    
+    if (themeId === currentTheme) {
+      btn.style.background = `${themeDef.colors.accent} !important`;
+      btn.style.color = 'white !important';
+      btn.style.borderColor = `${themeDef.colors.accent} !important`;
+      btn.style.fontWeight = '500 !important';
+    }
+    
+    btn.addEventListener('click', () => {
+      applyTheme(themeId);
+      document.getElementById('theme-menu').classList.remove('active');
+    });
+    
+    btn.addEventListener('mouseenter', () => {
+      if (themeId !== currentTheme) {
+        btn.style.background = `${themeDef.colors.light} !important`;
+      }
+    });
+    
+    btn.addEventListener('mouseleave', () => {
+      if (themeId !== currentTheme) {
+        btn.style.background = `${themeDef.colors.lightBg} !important`;
+      }
+    });
+    
+    themeButtons.appendChild(btn);
+  });
+}
+
+// Инициализировать меню тем
+function initThemeMenu() {
+  const toggleBtn = document.getElementById('theme-toggle-btn');
+  const themeMenu = document.getElementById('theme-menu');
+  
+  if (!toggleBtn || !themeMenu) return;
+  
+  toggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    themeMenu.classList.toggle('active');
+  });
+  
+  // Закрываем меню при клике вне его
+  document.addEventListener('click', (e) => {
+    if (!themeMenu.contains(e.target) && e.target !== toggleBtn) {
+      themeMenu.classList.remove('active');
+    }
+  });
+  
+  // Закрываем меню при скролле
+  document.addEventListener('scroll', () => {
+    themeMenu.classList.remove('active');
+  });
+}
+
+// ============================================
 // КОНФИГУРАЦИЯ ИСТОЧНИКОВ
 // ============================================
 
@@ -7,10 +227,8 @@ const sources = {
     name: 'FamilySearch',
     needsAuth: true,
     
-    // Определяет, является ли URL этим источником
     detect: (url) => url.includes('familysearch.org'),
     
-    // Парсит URL и извлекает нужные данные
     parse: (url) => {
       const protocolEnd = url.indexOf('://');
       if (protocolEnd === -1) return null;
@@ -32,17 +250,14 @@ const sources = {
       return { code: pathAndQuery.substring(colonIndex + 1, questionIndex) };
     },
     
-    // Генерирует URL для загрузки на основе распарсенных данных
     generateUrl: (parsed) => {
       if (!parsed.code) return null;
       const template = 'https://sg30p0.familysearch.org/service/records/storage/deepzoomcloud/dz/v1/3:1:***/$dist';
       return template.replace('***', parsed.code);
     },
     
-    // Генерирует имя файла для сохранения
     getFilename: (parsed) => parsed.code,
     
-    // Форматирует строку для отображения извлеченных данных
     displayText: (parsed) => `Код: ${parsed.code}`
   },
 
@@ -81,12 +296,6 @@ const sources = {
   }
 };
 
-// ============================================
-// ГЛАВНАЯ ЛОГИКА
-// ============================================
-
-let currentSourceConfig = null;
-
 // Функция для определения источника по URL
 function detectSource(url) {
   for (const [key, config] of Object.entries(sources)) {
@@ -119,29 +328,11 @@ function parseUrl(url, sourceConfig) {
   }
 }
 
-// Обработчик загрузки popup
-document.addEventListener('DOMContentLoaded', () => {
-  chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-    if (tabs[0]) {
-      // Автоматически определяем источник
-      const sourceDetection = detectSource(tabs[0].url);
-      
-      if (!sourceDetection) {
-        document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с поддерживаемого источника';
-        document.getElementById('download-btn').disabled = true;
-        return;
-      }
-      
-      currentSourceConfig = sourceDetection.config;
-      processCurrentTab(tabs[0]);
-    }
-  });
-});
+let currentSourceConfig = null;
 
 // Функция для загрузки файла через Service Worker
 async function downloadImage(resultUrl, filename, needsAuth = true) {
   try {
-    // Показываем статус загрузки
     const status = document.getElementById('status');
     status.textContent = '⏳ Загрузка документа...';
     status.classList.remove('success', 'error');
@@ -149,7 +340,6 @@ async function downloadImage(resultUrl, filename, needsAuth = true) {
     
     console.log('Отправляем запрос на загрузку в Service Worker:', resultUrl);
     
-    // Отправляем сообщение в Service Worker
     const response = await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
         { 
@@ -170,12 +360,10 @@ async function downloadImage(resultUrl, filename, needsAuth = true) {
       );
     });
     
-    // После успешной загрузки
     status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
     status.classList.remove('info', 'error');
     status.classList.add('success');
     
-    // Скрываем сообщение через 3 секунды
     setTimeout(() => {
       status.classList.remove('success');
     }, 3000);
@@ -192,18 +380,16 @@ async function downloadImage(resultUrl, filename, needsAuth = true) {
 // Функция обработки текущей вкладки
 function processCurrentTab(tab) {
   try {
-    // Определяем источник
     const sourceDetection = detectSource(tab.url);
     
     if (!sourceDetection) {
-      document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с familysearch.org или viewer.rusneb.ru';
+      document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с поддерживаемого источника';
       document.getElementById('download-btn').disabled = true;
       return;
     }
     
     currentSourceConfig = sourceDetection.config;
     
-    // Парсим URL
     const result = parseUrl(tab.url, currentSourceConfig);
     
     if (!result) {
@@ -212,14 +398,11 @@ function processCurrentTab(tab) {
       return;
     }
     
-    // Выводим найденную подстроку
     document.getElementById('extracted-text').innerHTML = result.displayText;
     
-    // Выводим результат на страницу
     const urlDisplay = document.getElementById('url-display');
     urlDisplay.textContent = result.downloadUrl;
     
-    // Обработчик кнопки копирования
     const copyBtn = document.getElementById('copy-btn');
     copyBtn.onclick = async () => {
       try {
@@ -238,7 +421,6 @@ function processCurrentTab(tab) {
       }
     };
     
-    // Обработчик кнопки загрузки файла
     const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = false;
     downloadBtn.onclick = async () => {
@@ -251,3 +433,24 @@ function processCurrentTab(tab) {
     document.getElementById('download-btn').disabled = true;
   }
 }
+
+// Обработчик загрузки popup
+document.addEventListener('DOMContentLoaded', () => {
+  const currentTheme = getCurrentTheme();
+  applyTheme(currentTheme);
+  
+  chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+    if (tabs[0]) {
+      const sourceDetection = detectSource(tabs[0].url);
+      
+      if (!sourceDetection) {
+        document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с поддерживаемого источника';
+        document.getElementById('download-btn').disabled = true;
+        return;
+      }
+      
+      currentSourceConfig = sourceDetection.config;
+      processCurrentTab(tabs[0]);
+    }
+  });
+});

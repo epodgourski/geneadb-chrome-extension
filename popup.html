@@ -3,57 +3,113 @@
 <head>
   <meta charset="UTF-8">
   <style>
+    :root {
+      --theme-primary: #5D4A3D;
+      --theme-primaryDark: #4A3A2D;
+      --theme-accent: #8B6F47;
+      --theme-light: #E8DCC8;
+      --theme-lightBg: #F5F2ED;
+      --theme-text: #2C2416;
+      --theme-border: #D4C4B0;
+    }
+
     body {
       width: 400px;
       padding: 15px;
       font-family: Arial, sans-serif;
       background-color: #f5f5f5;
+      margin: 0;
     }
+    
     .container {
       background-color: white;
       padding: 15px;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      position: relative;
     }
-    h2 {
-      margin: 0 0 15px 0;
-      color: #333;
-      font-size: 16px;
+    
+    .header {
+      background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primaryDark) 100%);
+      color: white;
+      padding: 0 16px;
+      border-radius: 8px;
+      margin: -15px -15px 15px -15px;
+      transition: all 0.3s ease;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 56px;
     }
+    
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .header-icon {
+      font-size: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 56px;
+    }
+
+    .header-text h1 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    
+    .version {
+      font-size: 10px;
+      opacity: 0.85;
+      margin-top: 2px;
+    }
+    
     .section {
       margin-bottom: 12px;
     }
+    
     .label {
       font-size: 12px;
-      color: #666;
+      color: var(--theme-primary);
       font-weight: bold;
       margin-bottom: 4px;
     }
+    
     #url-display {
-      background-color: #f0f0f0;
+      background-color: var(--theme-lightBg);
       padding: 10px;
       border-radius: 4px;
       word-break: break-all;
       font-size: 12px;
-      color: #333;
-      border: 1px solid #ddd;
+      color: var(--theme-text);
+      border: 1px solid var(--theme-border);
       font-family: monospace;
       min-height: 30px;
+      transition: all 0.3s ease;
     }
+    
     #extracted-text {
-      background-color: #fff3cd;
+      background-color: var(--theme-light);
       padding: 10px;
       border-radius: 4px;
-      border: 1px solid #ffc107;
+      border: 1px solid var(--theme-accent);
       font-family: monospace;
       font-size: 12px;
-      color: #856404;
+      color: var(--theme-text);
+      transition: all 0.3s ease;
     }
+    
     .button-group {
       display: flex;
       gap: 8px;
       margin-top: 12px;
     }
+    
     button {
       flex: 1;
       padding: 8px;
@@ -62,27 +118,35 @@
       border-radius: 4px;
       cursor: pointer;
       font-size: 13px;
-      transition: background-color 0.3s;
+      transition: all 0.2s;
+      font-weight: 500;
     }
+    
     #copy-btn {
-      background-color: #4CAF50;
+      background-color: var(--theme-accent);
     }
+    
     #copy-btn:hover {
-      background-color: #45a049;
+      filter: brightness(1.1);
     }
+    
     #download-btn {
-      background-color: #2196F3;
+      background-color: var(--theme-accent);
     }
+    
     #download-btn:hover {
-      background-color: #0b7dda;
+      filter: brightness(1.1);
     }
+    
     #download-btn:disabled {
       background-color: #ccc;
       cursor: not-allowed;
     }
+    
     button:active {
       opacity: 0.8;
     }
+    
     .status {
       margin-top: 10px;
       padding: 8px;
@@ -91,16 +155,19 @@
       font-size: 12px;
       display: none;
     }
+    
     .status.success {
       background-color: #d4edda;
       color: #155724;
       display: block;
     }
+    
     .status.info {
       background-color: #d1ecf1;
       color: #0c5460;
       display: block;
     }
+    
     .status.error {
       background-color: #f8d7da;
       color: #721c24;
@@ -113,24 +180,7 @@
       font-size: 14px;
       margin: 8px 0;
     }
-    .header {
-      background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
-      color: white;
-      padding: 12px;
-      border-radius: 8px;
-      margin: -15px -15px 15px -15px;
-      text-align: center;
-    }
-    .header h1 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: bold;
-    }
-    .header .brand {
-      font-size: 11px;
-      opacity: 0.9;
-      margin-top: 4px;
-    }
+    
     .footer {
       text-align: center;
       font-size: 10px;
@@ -139,10 +189,12 @@
       padding-top: 12px;
       border-top: 1px solid #eee;
     }
+    
     .footer a {
-      color: #1565c0;
+      color: var(--theme-accent);
       text-decoration: none;
     }
+    
     .footer a:hover {
       text-decoration: underline;
     }
@@ -151,13 +203,18 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1>📄 Загрузчик документов</h1>
-      <div class="brand">Инструмент генеалогического портала geneadb.com</div>
+      <div class="header-left">
+        <div class="header-icon">📄</div>
+        <div class="header-text">
+          <h1>Загрузчик документов</h1>
+          <div class="version">Версия 2026.03.21.02</div>
+        </div>
+      </div>
     </div>
     
     <div class="section">
       <div class="label">📍 Найденная подстрока:</div>
-      <div id="extracted-text" style="background-color: #fff3cd; padding: 10px; border-radius: 4px; border: 1px solid #ffc107; font-family: monospace; font-size: 12px; color: #856404;"></div>
+      <div id="extracted-text"></div>
     </div>
     
     <div class="arrow">⬇ Подставлено в шаблон ⬇</div>
