@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Загрузчик документов geneadb.com",
+  "version": "1.0",
+  "description": "Инструмент генеалогического портала geneadb.com для загрузки защищенных документов и изображений",
+  "permissions": ["activeTab", "scripting", "downloads"],
+  "host_permissions": [
+    "https://sg30p0.familysearch.org/*",
+    "https://viewer.rusneb.ru/*",
+    "https://*/*"
+  ],
+  "author": "geneadb.com",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Загрузчик документов"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "128": "icon128.svg"
+  }
+}

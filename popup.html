@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 400px;
+      padding: 15px;
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background-color: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 {
+      margin: 0 0 15px 0;
+      color: #333;
+      font-size: 16px;
+    }
+    .section {
+      margin-bottom: 12px;
+    }
+    .label {
+      font-size: 12px;
+      color: #666;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    #url-display {
+      background-color: #f0f0f0;
+      padding: 10px;
+      border-radius: 4px;
+      word-break: break-all;
+      font-size: 12px;
+      color: #333;
+      border: 1px solid #ddd;
+      font-family: monospace;
+      min-height: 30px;
+    }
+    #extracted-text {
+      background-color: #fff3cd;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #ffc107;
+      font-family: monospace;
+      font-size: 12px;
+      color: #856404;
+    }
+    .button-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    button {
+      flex: 1;
+      padding: 8px;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background-color 0.3s;
+    }
+    #copy-btn {
+      background-color: #4CAF50;
+    }
+    #copy-btn:hover {
+      background-color: #45a049;
+    }
+    #download-btn {
+      background-color: #2196F3;
+    }
+    #download-btn:hover {
+      background-color: #0b7dda;
+    }
+    #download-btn:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    button:active {
+      opacity: 0.8;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      text-align: center;
+      font-size: 12px;
+      display: none;
+    }
+    .status.success {
+      background-color: #d4edda;
+      color: #155724;
+      display: block;
+    }
+    .status.info {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      display: block;
+    }
+    .status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+      display: block;
+    }
+
+    .arrow {
+      text-align: center;
+      color: #999;
+      font-size: 14px;
+      margin: 8px 0;
+    }
+    .header {
+      background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
+      color: white;
+      padding: 12px;
+      border-radius: 8px;
+      margin: -15px -15px 15px -15px;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .header .brand {
+      font-size: 11px;
+      opacity: 0.9;
+      margin-top: 4px;
+    }
+    .footer {
+      text-align: center;
+      font-size: 10px;
+      color: #999;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+    }
+    .footer a {
+      color: #1565c0;
+      text-decoration: none;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📄 Загрузчик документов</h1>
+      <div class="brand">Инструмент генеалогического портала geneadb.com</div>
+    </div>
+    
+    <div class="section">
+      <div class="label">📍 Найденная подстрока:</div>
+      <div id="extracted-text" style="background-color: #fff3cd; padding: 10px; border-radius: 4px; border: 1px solid #ffc107; font-family: monospace; font-size: 12px; color: #856404;"></div>
+    </div>
+    
+    <div class="arrow">⬇ Подставлено в шаблон ⬇</div>
+    
+    <div class="section">
+      <div class="label">✅ Итоговый URL:</div>
+      <div id="url-display">Загрузка...</div>
+    </div>
+    
+    <div class="button-group">
+      <button id="copy-btn">📋 Скопировать</button>
+      <button id="download-btn">⬇️ Скачать документ</button>
+    </div>
+    
+    <div class="status" id="status"></div>
+    
+    <div class="footer">
+      Продукт портала <a href="https://geneadb.com" target="_blank">geneadb.com</a>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
