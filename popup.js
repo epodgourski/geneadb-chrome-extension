@@ -302,18 +302,14 @@ const sources = {
 
     detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
 
-    scanPage: async (tabId) => {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const match = document.documentElement.innerHTML.match(
-            /"currentNode":\{"id":"([a-f0-9-]+)"/
-          );
-          return match ? match[1] : null;
-        }
-      });
-      const imageId = results && results[0] && results[0].result;
-      return imageId ? { imageId } : null;
+    scanPage: async (url) => {
+      const response = await fetch(url);
+      const html = await response.text();
+      const pathMatch = html.match(/"thumb":\{"path":"([^"]+)"/);
+      if (!pathMatch) return null;
+      const path = pathMatch[1].replace(/\\u0026/g, '&');
+      const idMatch = path.match(/[?&]id=([a-f0-9-]+)/);
+      return idMatch ? { imageId: idMatch[1] } : null;
     },
 
     parse: (url, extra) => {
@@ -433,7 +429,7 @@ async function processCurrentTab(tab) {
     let extra = null;
     if (currentSourceConfig.needsPageScan) {
       document.getElementById('url-display').textContent = 'Сканирование страницы...';
-      extra = await currentSourceConfig.scanPage(tab.id);
+      extra = await currentSourceConfig.scanPage(tab.url);
       if (!extra) {
         document.getElementById('url-display').textContent = 'Ошибка: не удалось найти изображение на странице';
         document.getElementById('download-btn').disabled = true;
