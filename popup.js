@@ -264,35 +264,74 @@ const sources = {
   rusneb: {
     name: 'RusNEB',
     needsAuth: false,
-    
+
     detect: (url) => url.includes('viewer.rusneb.ru'),
-    
+
     parse: (url) => {
       const questionIndex = url.indexOf('?');
       let searchUrl = questionIndex === -1 ? url : url.substring(0, questionIndex);
-      
+
       const lastSlashIndex = searchUrl.lastIndexOf('/');
       if (lastSlashIndex === -1) return null;
-      
+
       const code = searchUrl.substring(lastSlashIndex + 1);
-      
+
       const params = new URLSearchParams(questionIndex === -1 ? '' : url.substring(questionIndex));
       const page = params.get('page') || '1';
-      
+
       return { code, page };
     },
-    
+
     generateUrl: (parsed) => {
       if (!parsed.code || !parsed.page) return null;
       return `https://viewer.rusneb.ru/api/v1/document/${parsed.code}/page/${parsed.page}`;
     },
-    
+
     getFilename: (parsed) => {
       const paddedPage = String(parsed.page).padStart(4, '0');
       return `${parsed.code}_${paddedPage}`;
     },
-    
+
     displayText: (parsed) => `Код: ${parsed.code}<br/>Страница: ${parsed.page}`
+  },
+
+  yandex: {
+    name: 'Яндекс Архивы',
+    needsAuth: false,
+    needsPageScan: true,
+
+    detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
+
+    scanPage: async (tabId) => {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const match = document.documentElement.innerHTML.match(
+            /ya\.ru\/archive\/api\/image\?id=([a-f0-9-]+)&type=(?:thumb|preview)/
+          );
+          return match ? match[1] : null;
+        }
+      });
+      const imageId = results && results[0] && results[0].result;
+      return imageId ? { imageId } : null;
+    },
+
+    parse: (url, extra) => {
+      const match = url.match(/ya\.ru\/archive\/catalog\/[^/]+\/(\d+)/);
+      if (!match) return null;
+      const page = match[1];
+      if (!extra || !extra.imageId) return null;
+      return { page, imageId: extra.imageId };
+    },
+
+    generateUrl: (parsed) => {
+      if (!parsed.imageId) return null;
+      return `https://ya.ru/archive/api/image?id=${parsed.imageId}&type=original`;
+    },
+
+    getFilename: (parsed) => `f${String(parsed.page).padStart(4, '0')}`,
+
+    displayText: (parsed) => `Страница: ${parsed.page}<br/>ID: ${parsed.imageId}`
   }
 };
 
@@ -307,14 +346,14 @@ function detectSource(url) {
 }
 
 // Функция для парсинга URL (использует конфиг источника)
-function parseUrl(url, sourceConfig) {
+function parseUrl(url, sourceConfig, extra = null) {
   try {
-    const parsed = sourceConfig.parse(url);
+    const parsed = sourceConfig.parse(url, extra);
     if (!parsed) return null;
-    
+
     const downloadUrl = sourceConfig.generateUrl(parsed);
     if (!downloadUrl) return null;
-    
+
     return {
       parsed: parsed,
       downloadUrl: downloadUrl,
@@ -340,7 +379,7 @@ async function downloadImage(resultUrl, filename, needsAuth = true) {
     
     console.log('Отправляем запрос на загрузку в Service Worker:', resultUrl);
     
-    const response = await new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
         { 
           action: 'downloadImage', 
@@ -378,41 +417,52 @@ async function downloadImage(resultUrl, filename, needsAuth = true) {
 }
 
 // Функция обработки текущей вкладки
-function processCurrentTab(tab) {
+async function processCurrentTab(tab) {
   try {
     const sourceDetection = detectSource(tab.url);
-    
+
     if (!sourceDetection) {
       document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с поддерживаемого источника';
       document.getElementById('download-btn').disabled = true;
       return;
     }
-    
+
     currentSourceConfig = sourceDetection.config;
-    
-    const result = parseUrl(tab.url, currentSourceConfig);
-    
+
+    let extra = null;
+    if (currentSourceConfig.needsPageScan) {
+      document.getElementById('url-display').textContent = 'Сканирование страницы...';
+      extra = await currentSourceConfig.scanPage(tab.id);
+      if (!extra) {
+        document.getElementById('url-display').textContent = 'Ошибка: не удалось найти изображение на странице';
+        document.getElementById('download-btn').disabled = true;
+        return;
+      }
+    }
+
+    const result = parseUrl(tab.url, currentSourceConfig, extra);
+
     if (!result) {
       document.getElementById('url-display').textContent = 'Ошибка: не удалось распарсить URL этого источника';
       document.getElementById('download-btn').disabled = true;
       return;
     }
-    
+
     document.getElementById('extracted-text').innerHTML = result.displayText;
-    
+
     const urlDisplay = document.getElementById('url-display');
     urlDisplay.textContent = result.downloadUrl;
-    
+
     const copyBtn = document.getElementById('copy-btn');
     copyBtn.onclick = async () => {
       try {
         await navigator.clipboard.writeText(result.downloadUrl);
-        
+
         const status = document.getElementById('status');
         status.textContent = '✓ URL скопирован в буфер обмена!';
         status.classList.remove('error', 'info');
         status.classList.add('success');
-        
+
         setTimeout(() => {
           status.classList.remove('success');
         }, 2000);
@@ -420,13 +470,13 @@ function processCurrentTab(tab) {
         console.error('Ошибка при копировании:', err);
       }
     };
-    
+
     const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = false;
     downloadBtn.onclick = async () => {
       await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
     };
-    
+
   } catch (error) {
     console.error('Ошибка:', error);
     document.getElementById('url-display').textContent = 'Ошибка при обработке URL';
@@ -438,18 +488,9 @@ function processCurrentTab(tab) {
 document.addEventListener('DOMContentLoaded', () => {
   const currentTheme = getCurrentTheme();
   applyTheme(currentTheme);
-  
+
   chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
     if (tabs[0]) {
-      const sourceDetection = detectSource(tabs[0].url);
-      
-      if (!sourceDetection) {
-        document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с поддерживаемого источника';
-        document.getElementById('download-btn').disabled = true;
-        return;
-      }
-      
-      currentSourceConfig = sourceDetection.config;
       processCurrentTab(tabs[0]);
     }
   });

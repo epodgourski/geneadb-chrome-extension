@@ -7,6 +7,7 @@
   "host_permissions": [
     "https://sg30p0.familysearch.org/*",
     "https://viewer.rusneb.ru/*",
+    "https://ya.ru/*",
     "https://*/*"
   ],
   "author": "geneadb.com",
