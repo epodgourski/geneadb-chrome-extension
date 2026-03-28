@@ -307,7 +307,7 @@ const sources = {
         target: { tabId },
         func: () => {
           const match = document.documentElement.innerHTML.match(
-            /ya\.ru\/archive\/api\/image\?id=([a-f0-9-]+)&type=(?:thumb|preview)/
+            /"currentNode":\{"id":"([a-f0-9-]+)"/
           );
           return match ? match[1] : null;
         }
@@ -317,7 +317,8 @@ const sources = {
     },
 
     parse: (url, extra) => {
-      const match = url.match(/ya\.ru\/archive\/catalog\/[^/]+\/(\d+)/);
+      const cleanUrl = url.split('?')[0];
+      const match = cleanUrl.match(/ya\.ru\/archive\/catalog\/[^/]+\/(\d+)/);
       if (!match) return null;
       const page = match[1];
       if (!extra || !extra.imageId) return null;
