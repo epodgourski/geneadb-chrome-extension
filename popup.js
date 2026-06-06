@@ -480,10 +480,20 @@ function psSeriesInfo() {
 // выбранного элемента сетки / location.pathname / src изображения.
 async function psCollectArks(total) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const ARK_RE = /(\d+:\d+:[A-Za-z0-9-]{4,})/;
-  const arkFrom = (s) => {
+  // ARK встречается в двух форматах: "3:1:XXXX-XXXX" и "TH-XXXX-XXXX".
+  const ARK_RE = /((?:\d+:\d+:|[A-Za-z]{1,5}-)[A-Za-z0-9-]+)/;
+  const arkFromText = (s) => {
     const m = (s || '').match(ARK_RE);
     return m ? m[1] : null;
+  };
+  // У элементов сетки id имеет вид "grid-item-<ARK>" — снимаем префикс и
+  // получаем полный ARK в исходном формате (с "3:1:" или "TH-"), ничего не теряя.
+  const arkFromId = (id) => {
+    if (!id) return null;
+    const s = String(id).replace(/^grid-item-/, '');
+    if (/^\d+:\d+:[A-Za-z0-9-]+$/.test(s)) return s;
+    if (/^[A-Za-z]{1,5}-\d[A-Za-z0-9-]*$/.test(s)) return s;
+    return arkFromText(s);
   };
 
   const map = {}; // image-index (0-based) -> ARK
@@ -514,12 +524,12 @@ async function psCollectArks(total) {
   const curArk = () => {
     const sel = document.querySelector('[role="option"][aria-selected="true"]');
     if (sel) {
-      const a = arkFrom(sel.id) || arkFrom((sel.querySelector('[id]') || {}).id);
+      const a = arkFromId(sel.id) || arkFromId((sel.querySelector('[id]') || {}).id);
       if (a) return a;
     }
-    const fromPath = arkFrom(location.pathname);
+    const fromPath = arkFromText(location.pathname);
     if (fromPath) return fromPath;
-    const fromImg = [...document.querySelectorAll('img[src]')].map((x) => arkFrom(x.src)).find(Boolean);
+    const fromImg = [...document.querySelectorAll('img[src]')].map((x) => arkFromText(x.src)).find(Boolean);
     return fromImg || null;
   };
 
@@ -529,9 +539,9 @@ async function psCollectArks(total) {
       const idx = parseInt(opt.getAttribute('image-index'));
       if (isNaN(idx)) return;
       const ark =
-        arkFrom(opt.id) ||
-        arkFrom((opt.querySelector('[id]') || {}).id) ||
-        arkFrom((opt.querySelector('img[src]') || {}).src);
+        arkFromId(opt.id) ||
+        arkFromId((opt.querySelector('[id]') || {}).id) ||
+        arkFromText((opt.querySelector('img[src]') || {}).src);
       record(idx, ark);
     });
   };
@@ -691,10 +701,12 @@ async function downloadSeries(tab) {
       if (seriesState.cancel) break;
 
       const frameNum = it.index + 1;
-      const code = it.ark.split(':').pop();
-      const url = sources.familysearch.generateUrl({ code });
+      // Полный ARK (любого формата) подставляется в шаблон deepzoom как есть.
+      const url = `https://sg30p0.familysearch.org/service/records/storage/deepzoomcloud/dz/v1/${it.ark}/$dist`;
+      // Базовое имя файла без двоеточий: "3:1:CODE" → "CODE", "TH-..." → как есть.
+      const base = it.ark.split(':').pop();
       const prefix = String(frameNum).padStart(padLength, '0') + '_';
-      const filename = prefix + code;
+      const filename = prefix + base;
 
       btn.textContent = `⏳ Скачивается ${frameNum} / ${total}...`;
       await requestDownload(url, filename, true);
