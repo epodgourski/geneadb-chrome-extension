@@ -548,7 +548,9 @@ async function psCollectArks(total) {
   };
 
   collectGrid();
-  if (document.querySelector('[role="option"][image-index]')) {
+  // Прокрутка нужна только при виртуальном скролле (когда отрендерены не все
+  // кадры). Если сетка уже содержит все элементы — пропускаем её.
+  if (Object.keys(map).length < total && document.querySelector('[role="option"][image-index]')) {
     const scroller = findScroller();
     if (scroller) {
       scroller.scrollTop = 0;
