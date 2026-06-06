@@ -480,21 +480,16 @@ function psSeriesInfo() {
 // выбранного элемента сетки / location.pathname / src изображения.
 async function psCollectArks(total) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // ARK встречается в двух форматах: "3:1:XXXX-XXXX" и "TH-XXXX-XXXX".
-  const ARK_RE = /((?:\d+:\d+:|[A-Za-z]{1,5}-)[A-Za-z0-9-]+)/;
+  // Интересует только storage-ARK формата "3:1:XXXX-XXXX".
+  // Ключевая часть для имени файла — то, что после "3:1:" (например 3QHK-V7TF-73W2).
+  const ARK_RE = /(\d+:\d+:[A-Za-z0-9-]+)/;
   const arkFromText = (s) => {
     const m = (s || '').match(ARK_RE);
     return m ? m[1] : null;
   };
-  // У элементов сетки id имеет вид "grid-item-<ARK>" — снимаем префикс и
-  // получаем полный ARK в исходном формате (с "3:1:" или "TH-"), ничего не теряя.
-  const arkFromId = (id) => {
-    if (!id) return null;
-    const s = String(id).replace(/^grid-item-/, '');
-    if (/^\d+:\d+:[A-Za-z0-9-]+$/.test(s)) return s;
-    if (/^[A-Za-z]{1,5}-\d[A-Za-z0-9-]*$/.test(s)) return s;
-    return arkFromText(s);
-  };
+  // У ячеек сетки id бывает "grid-item-3:1:XXXX" (ARK прямо в id) либо служебный
+  // "grid-item-TH-..." — в последнем случае нужный 3:1:-ARK берётся из src миниатюры.
+  const arkFromId = (id) => arkFromText(String(id || '').replace(/^grid-item-/, ''));
 
   const map = {}; // image-index (0-based) -> ARK
   const record = (idx, ark) => {
@@ -524,7 +519,10 @@ async function psCollectArks(total) {
   const curArk = () => {
     const sel = document.querySelector('[role="option"][aria-selected="true"]');
     if (sel) {
-      const a = arkFromId(sel.id) || arkFromId((sel.querySelector('[id]') || {}).id);
+      const a =
+        arkFromId(sel.id) ||
+        arkFromText((sel.querySelector('img[src]') || {}).src) ||
+        arkFromId((sel.querySelector('[id]') || {}).id);
       if (a) return a;
     }
     const fromPath = arkFromText(location.pathname);
@@ -540,8 +538,8 @@ async function psCollectArks(total) {
       if (isNaN(idx)) return;
       const ark =
         arkFromId(opt.id) ||
-        arkFromId((opt.querySelector('[id]') || {}).id) ||
-        arkFromText((opt.querySelector('img[src]') || {}).src);
+        arkFromText((opt.querySelector('img[src]') || {}).src) ||
+        arkFromId((opt.querySelector('[id]') || {}).id);
       record(idx, ark);
     });
   };
@@ -701,12 +699,12 @@ async function downloadSeries(tab) {
       if (seriesState.cancel) break;
 
       const frameNum = it.index + 1;
-      // Полный ARK (любого формата) подставляется в шаблон deepzoom как есть.
+      // it.ark всегда формата "3:1:XXXX"; подставляем его в шаблон deepzoom.
       const url = `https://sg30p0.familysearch.org/service/records/storage/deepzoomcloud/dz/v1/${it.ark}/$dist`;
-      // Базовое имя файла без двоеточий: "3:1:CODE" → "CODE", "TH-..." → как есть.
-      const base = it.ark.split(':').pop();
+      // Имя файла — ключевая часть после "3:1:" (например 3QHK-V7TF-73W2).
+      const code = it.ark.split(':').pop();
       const prefix = String(frameNum).padStart(padLength, '0') + '_';
-      const filename = prefix + base;
+      const filename = prefix + code;
 
       btn.textContent = `⏳ Скачивается ${frameNum} / ${total}...`;
       await requestDownload(url, filename, true);
