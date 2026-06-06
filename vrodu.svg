@@ -1,0 +1,66 @@
+<svg width="100%" viewBox="90 -10 270 270" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .parent-circle { fill: none; stroke: #3D3525; stroke-width: 4.5; }
+      .child-circle { fill: #A07828; stroke: #3D3525; stroke-width: 4.5; }
+      .connection-curve { stroke: #3D3525; stroke-width: 4.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+      .word-text { font-family: monospace; font-size: 44px; font-weight: 200; fill: #3D3525; }
+      .mini-connection-curve { stroke: #A07828; stroke-width: 8.64; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .mini-circle { fill: none; stroke: #A07828; stroke-width: 8.64; }
+      .mini-text { font-family: monospace; font-size: 5.28px; font-weight: 200; fill: #A07828; }
+    </style>
+  </defs>
+  
+  <!-- Фон -->
+  <rect x="90" y="-10" width="270" height="270" fill="#F8F5EE"/>
+  <!-- Кружочки для родителей -->
+  <circle cx="145" cy="55" r="22" class="parent-circle"/>
+  <circle cx="305" cy="55" r="22" class="parent-circle"/>
+  
+  <!-- Кружочек для ребенка (О в центре) -->
+  <circle cx="225" cy="210" r="20" class="child-circle"/>
+  
+  <!-- Основные изогнутые линии V (более изогнутые) -->
+  <path d="M 145 77 Q 165 140 225 190" class="connection-curve"/>
+  <path d="M 305 77 Q 285 140 225 190" class="connection-curve"/>
+
+  
+  <!-- Буква В слева -->
+  <text x="126" y="185" class="word-text" text-anchor="start" dominant-baseline="text-before-edge">В</text>
+  
+  <!-- Буква Р -->
+  <text x="164" y="185" class="word-text" text-anchor="start" dominant-baseline="text-before-edge">Р</text>
+  
+  <!-- Буква Д -->
+  <text x="262" y="185" class="word-text" text-anchor="start" dominant-baseline="text-before-edge">Д</text>
+  
+  <!-- Буква У -->
+  <text x="330" y="185" class="word-text" text-anchor="end" dominant-baseline="text-before-edge">У</text>
+  
+  <!-- МИНИАТЮРА СЛЕВА -->
+  <g transform="translate(118, 42) scale(0.12)">
+    <circle cx="145" cy="55" r="22" class="mini-circle"/>
+    <circle cx="305" cy="55" r="22" class="mini-circle"/>
+    <circle cx="225" cy="210" r="20" class="mini-circle"/>
+    <path d="M 145 77 Q 165 140 225 190" class="mini-connection-curve"/>
+    <path d="M 305 77 Q 285 140 225 190" class="mini-connection-curve"/>
+    <text x="126" y="185" class="mini-text" text-anchor="start" dominant-baseline="text-before-edge">В</text>
+    <text x="164" y="185" class="mini-text" text-anchor="start" dominant-baseline="text-before-edge">Р</text>
+    <text x="262" y="185" class="mini-text" text-anchor="start" dominant-baseline="text-before-edge">Д</text>
+    <text x="330" y="185" class="mini-text" text-anchor="end" dominant-baseline="text-before-edge">У</text>
+  </g>
+  
+  <!-- МИНИАТЮРА СПРАВА -->
+  <g transform="translate(278, 42) scale(0.12)">
+    <circle cx="145" cy="55" r="22" class="mini-circle"/>
+    <circle cx="305" cy="55" r="22" class="mini-circle"/>
+    <circle cx="225" cy="210" r="20" class="mini-circle"/>
+    <path d="M 145 77 Q 165 140 225 190" class="mini-connection-curve"/>
+    <path d="M 305 77 Q 285 140 225 190" class="mini-connection-curve"/>
+    <text x="126" y="185" class="mini-text" text-anchor="start" dominant-baseline="text-before-edge">В</text>
+    <text x="164" y="185" class="mini-text" text-anchor="start" dominant-baseline="text-before-edge">Р</text>
+    <text x="262" y="185" class="mini-text" text-anchor="start" dominant-baseline="text-before-edge">Д</text>
+    <text x="330" y="185" class="mini-text" text-anchor="end" dominant-baseline="text-before-edge">У</text>
+  </g>
+</svg>
