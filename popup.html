@@ -142,7 +142,22 @@
       background-color: #ccc;
       cursor: not-allowed;
     }
-    
+
+    #download-series-btn {
+      width: 100%;
+      margin-top: 8px;
+      background-color: var(--theme-accent);
+    }
+
+    #download-series-btn:hover {
+      filter: brightness(1.1);
+    }
+
+    #download-series-btn:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
     button:active {
       opacity: 0.8;
     }
@@ -207,7 +222,7 @@
         <div class="header-icon">📄</div>
         <div class="header-text">
           <h1>Загрузчик документов</h1>
-          <div class="version">Версия 2026.03.28.01</div>
+          <div class="version">Версия 2026.06.06.01</div>
         </div>
       </div>
     </div>
@@ -228,7 +243,9 @@
       <button id="copy-btn">📋 Скопировать</button>
       <button id="download-btn">⬇️ Скачать документ</button>
     </div>
-    
+
+    <button id="download-series-btn" style="display: none;">📦 Скачать серию</button>
+
     <div class="status" id="status"></div>
     
     <div class="footer">

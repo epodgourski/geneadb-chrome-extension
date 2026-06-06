@@ -116,7 +116,7 @@ function applyTheme(themeId) {
   });
   
   // Обновляем кнопки
-  document.querySelectorAll('#copy-btn, #download-btn').forEach(btn => {
+  document.querySelectorAll('#copy-btn, #download-btn, #download-series-btn').forEach(btn => {
     btn.style.backgroundColor = theme.colors.accent;
     btn.style.borderColor = theme.colors.accent;
   });
@@ -366,36 +366,42 @@ function parseUrl(url, sourceConfig, extra = null) {
 
 let currentSourceConfig = null;
 
-// Функция для загрузки файла через Service Worker
+// Низкоуровневый запрос на загрузку файла через Service Worker.
+// Возвращает Promise, который резолвится при успехе и реджектится при ошибке.
+function requestDownload(resultUrl, filename, needsAuth = true) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        action: 'downloadImage',
+        url: resultUrl,
+        filename: filename,
+        needsAuth: needsAuth
+      },
+      (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (result && result.success) {
+          resolve(result);
+        } else {
+          reject(new Error(result ? result.error : 'Неизвестная ошибка'));
+        }
+      }
+    );
+  });
+}
+
+// Функция для загрузки одного файла через Service Worker (с индикацией в UI)
 async function downloadImage(resultUrl, filename, needsAuth = true) {
   try {
     const status = document.getElementById('status');
     status.textContent = '⏳ Загрузка документа...';
     status.classList.remove('success', 'error');
     status.classList.add('info');
-    
+
     console.log('Отправляем запрос на загрузку в Service Worker:', resultUrl);
-    
-    await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { 
-          action: 'downloadImage', 
-          url: resultUrl, 
-          filename: filename,
-          needsAuth: needsAuth
-        },
-        (result) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else if (result.success) {
-            resolve(result);
-          } else {
-            reject(new Error(result.error));
-          }
-        }
-      );
-    });
-    
+
+    await requestDownload(resultUrl, filename, needsAuth);
+
     status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
     status.classList.remove('info', 'error');
     status.classList.add('success');
@@ -410,6 +416,208 @@ async function downloadImage(resultUrl, filename, needsAuth = true) {
     status.textContent = `✗ Ошибка: ${error.message}`;
     status.classList.remove('info', 'success');
     status.classList.add('error');
+  }
+}
+
+// ============================================
+// ПАКЕТНОЕ СКАЧИВАНИЕ СЕРИИ (FamilySearch)
+// ============================================
+
+// Состояние процесса скачивания серии
+const seriesState = { running: false, cancel: false };
+
+// Выполнить функцию в контексте страницы активной вкладки.
+// func сериализуется и не должна замыкать внешние переменные.
+async function runInPage(tabId, func, args = []) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func,
+    args
+  });
+  return results && results[0] ? results[0].result : undefined;
+}
+
+// --- Инъектируемые в страницу функции (выполняются в DOM FamilySearch) ---
+
+// Определить, есть ли на странице серия снимков
+function psSeriesInfo() {
+  const input = document.querySelector('input[aria-label="Ввести номер Снимок"]');
+  if (!input) return { hasSeries: false };
+  const total = parseInt(input.max);
+  const current = parseInt(input.value);
+  if (!(total > 1)) return { hasSeries: false };
+  return { hasSeries: true, total, current };
+}
+
+// Получить ARK и номер текущего (выбранного) снимка
+function psCurrentArk() {
+  const input = document.querySelector('input[aria-label="Ввести номер Снимок"]');
+  const num = input ? parseInt(input.value) : null;
+  let el = null;
+  if (num) el = document.querySelector('[data-testid="Снимок ' + num + '"]');
+  if (!el) {
+    const sel = document.querySelector('[role="option"][aria-selected="true"]');
+    if (sel) el = sel.querySelector('[data-testid^="Снимок"]') || sel;
+  }
+  if (!el) {
+    const all = document.querySelectorAll('[data-testid^="Снимок"]');
+    if (all.length === 1) el = all[0];
+  }
+  if (!el) return null;
+  const id = (el.id || '').replace('grid-item-', '');
+  if (!id) return null;
+  return { num, ark: id };
+}
+
+// Кнопка "Следующий снимок" отключена (мы на последнем снимке)?
+function psIsNextDisabled() {
+  const b = document.querySelector('button[aria-label="Следующий снимок"]');
+  if (!b) return true;
+  return b.getAttribute('aria-disabled') === 'true' || b.disabled === true;
+}
+
+// Перейти к первому снимку серии
+async function psGoToFirst() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const input = () => document.querySelector('input[aria-label="Ввести номер Снимок"]');
+  const val = () => (input() ? parseInt(input().value) : null);
+  let guard = 0;
+  while (guard++ < 2000) {
+    if (val() === 1) break;
+    const before = val();
+    const prev = document.querySelector('button[aria-label="Предыдущий снимок"]');
+    if (prev && prev.getAttribute('aria-disabled') !== 'true' && !prev.disabled) {
+      prev.click();
+    } else {
+      // Запасной вариант: кликнуть по первому снимку в сетке
+      const item =
+        document.querySelector('[data-testid="Снимок 1"]') ||
+        document.querySelector('[role="option"][image-index="0"]');
+      if (!item) break;
+      item.click();
+    }
+    let waited = 0;
+    while (waited < 8000) {
+      await sleep(100);
+      waited += 100;
+      if (val() !== before && val() !== null) break;
+    }
+  }
+  return val();
+}
+
+// Кликнуть "Следующий снимок" и дождаться смены номера снимка
+async function psClickNextAndWait() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const input = () => document.querySelector('input[aria-label="Ввести номер Снимок"]');
+  const val = () => (input() ? parseInt(input().value) : null);
+  const before = val();
+  const btn = document.querySelector('button[aria-label="Следующий снимок"]');
+  if (!btn) return { ok: false, error: 'no-next-button' };
+  btn.click();
+  let waited = 0;
+  while (waited < 8000) {
+    await sleep(100);
+    waited += 100;
+    const v = val();
+    if (v !== before && v !== null) return { ok: true, num: v };
+  }
+  return { ok: false, error: 'timeout' };
+}
+
+// Основной цикл скачивания серии (оркестрация в popup)
+async function downloadSeries(tab, total) {
+  const btn = document.getElementById('download-series-btn');
+  const status = document.getElementById('status');
+
+  // Повторное нажатие во время работы — отмена
+  if (seriesState.running) {
+    seriesState.cancel = true;
+    btn.textContent = '⏹ Остановка...';
+    return;
+  }
+
+  seriesState.running = true;
+  seriesState.cancel = false;
+
+  // Ширина префикса: минимум 2 знака (01_), 3 знака при total >= 100
+  const padLength = Math.max(2, String(total).length);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  let count = 0;
+
+  try {
+    btn.textContent = '⏳ Переход к первому снимку...';
+    await runInPage(tab.id, psGoToFirst);
+
+    while (true) {
+      if (seriesState.cancel) break;
+
+      const cur = await runInPage(tab.id, psCurrentArk);
+      if (!cur || !cur.ark) {
+        throw new Error('Не удалось определить ARK текущего снимка');
+      }
+
+      const frameNum = cur.num || count + 1;
+      const code = cur.ark.split(':').pop();
+      const url = sources.familysearch.generateUrl({ code });
+      const prefix = String(frameNum).padStart(padLength, '0') + '_';
+      const filename = prefix + code;
+
+      btn.textContent = `⏳ Скачивается ${frameNum} / ${total}...`;
+      await requestDownload(url, filename, true);
+      count++;
+
+      if (seriesState.cancel) break;
+
+      // Последний снимок — выходим
+      const nextDisabled = await runInPage(tab.id, psIsNextDisabled);
+      if (nextDisabled) break;
+
+      const res = await runInPage(tab.id, psClickNextAndWait);
+      if (!res || !res.ok) break;
+
+      // Пауза, чтобы не перегружать сервер
+      await sleep(400);
+    }
+
+    if (seriesState.cancel) {
+      status.textContent = `⏹ Отменено. Скачано ${count} из ${total}`;
+      status.className = 'status info';
+    } else {
+      status.textContent = `✓ Серия скачана! (${count} из ${total})`;
+      status.className = 'status success';
+      setTimeout(() => {
+        status.className = 'status';
+      }, 4000);
+    }
+  } catch (error) {
+    console.error('Ошибка при скачивании серии:', error);
+    status.textContent = `✗ Ошибка серии: ${error.message} (скачано ${count} из ${total})`;
+    status.className = 'status error';
+  } finally {
+    seriesState.running = false;
+    seriesState.cancel = false;
+    btn.textContent = `📦 Скачать серию (${total})`;
+  }
+}
+
+// Проверить наличие серии на FamilySearch и настроить кнопку
+async function setupSeriesButton(tab, sourceKey) {
+  const btn = document.getElementById('download-series-btn');
+  btn.style.display = 'none';
+
+  if (sourceKey !== 'familysearch' || !tab.id) return;
+
+  try {
+    const info = await runInPage(tab.id, psSeriesInfo);
+    if (info && info.hasSeries) {
+      btn.style.display = '';
+      btn.textContent = `📦 Скачать серию (${info.total})`;
+      btn.onclick = () => downloadSeries(tab, info.total);
+    }
+  } catch (error) {
+    console.warn('Серия не обнаружена или нет доступа к странице:', error);
   }
 }
 
@@ -473,6 +681,9 @@ async function processCurrentTab(tab) {
     downloadBtn.onclick = async () => {
       await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
     };
+
+    // Проверяем, есть ли на странице серия снимков (FamilySearch)
+    await setupSeriesButton(tab, sourceDetection.key);
 
   } catch (error) {
     console.error('Ошибка:', error);
