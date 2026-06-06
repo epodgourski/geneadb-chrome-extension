@@ -3,7 +3,7 @@
   "name": "Загрузчик документов geneadb.com",
   "version": "1.0",
   "description": "Инструмент генеалогического портала geneadb.com для загрузки защищенных документов и изображений",
-  "permissions": ["activeTab", "scripting", "downloads"],
+  "permissions": ["activeTab", "scripting", "downloads", "storage", "alarms"],
   "host_permissions": [
     "https://sg30p0.familysearch.org/*",
     "https://viewer.rusneb.ru/*",

@@ -1,36 +1,81 @@
 // Service Worker: одиночные загрузки и пакетное скачивание серии (FamilySearch).
 // Цикл серии выполняется здесь (а не в попапе), поэтому он продолжается даже
 // после закрытия или потери фокуса попапом.
+//
+// Устойчивость к длинным сериям (300+ кадров): прогресс сохраняется в
+// chrome.storage.session, а keep-alive через chrome.alarms будит service
+// worker. Если Chrome всё же выгрузит SW посреди серии (на старых версиях есть
+// жёсткий лимит времени жизни), при его перезапуске/срабатывании будильника
+// скачивание автоматически продолжается с последнего сохранённого кадра.
+// Фаза скачивания не зависит от вкладки: файлы тянутся напрямую с familysearch.
+
+const KEEPALIVE_ALARM = 'series-keepalive';
+
+// loopActive — защита от запуска двух циклов одновременно (в рамках жизни SW)
+let loopActive = false;
 
 // ============================================
-// СОСТОЯНИЕ СЕРИИ
+// СОСТОЯНИЕ СЕРИИ (персистентное, переживает перезапуск service worker)
 // ============================================
-const seriesState = {
-  running: false,
-  cancel: false,
-  tabId: null,
-  total: 0,
-  done: 0,
-  phase: null, // 'running' | 'done' | 'partial' | 'cancelled' | 'error'
-  message: ''
-};
+async function getSeries() {
+  const { series } = await chrome.storage.session.get('series');
+  return series || null;
+}
 
-function seriesSnapshot() {
+async function setSeries(series) {
+  await chrome.storage.session.set({ series });
+  return series;
+}
+
+async function patchSeries(patch) {
+  const current = (await getSeries()) || {};
+  return setSeries({ ...current, ...patch });
+}
+
+function snapshotOf(s) {
+  if (!s) return { running: false, total: 0, done: 0, phase: null, message: '' };
   return {
-    running: seriesState.running,
-    total: seriesState.total,
-    done: seriesState.done,
-    phase: seriesState.phase,
-    message: seriesState.message
+    running: !!s.running,
+    total: s.total || 0,
+    done: s.done || 0,
+    phase: s.phase || null,
+    message: s.message || ''
   };
 }
 
 // Оповестить попап (если открыт). Нет получателя — тихо игнорируем.
-function broadcastSeries() {
+function broadcast(s) {
   chrome.runtime
-    .sendMessage({ action: 'seriesProgress', state: seriesSnapshot() })
+    .sendMessage({ action: 'seriesProgress', state: snapshotOf(s) })
     .catch(() => {});
 }
+
+// ============================================
+// KEEP-ALIVE (chrome.alarms будит SW во время длинной серии)
+// ============================================
+function ensureKeepAlive() {
+  // Минимальный период будильника — 0.5 мин (30 сек)
+  chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.5 });
+}
+
+function clearKeepAlive() {
+  chrome.alarms.clear(KEEPALIVE_ALARM);
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== KEEPALIVE_ALARM) return;
+  // Срабатывание будильника само по себе будит SW; при необходимости
+  // возобновляем прерванный цикл.
+  getSeries().then((s) => {
+    if (s && s.running && !loopActive) proceedSeries();
+    else if (!s || !s.running) clearKeepAlive();
+  });
+});
+
+// При (пере)запуске service worker — возобновить прерванную серию, если была
+getSeries().then((s) => {
+  if (s && s.running && !loopActive) proceedSeries();
+});
 
 // ============================================
 // ОБРАБОТКА СООБЩЕНИЙ
@@ -44,26 +89,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'startSeries') {
-    if (seriesState.running) {
-      sendResponse({ ok: false, error: 'Серия уже скачивается' });
-      return false;
-    }
-    // Запускаем цикл, не дожидаясь его завершения: попап получит прогресс
-    // через сообщения seriesProgress, а сам цикл живёт в service worker.
-    runSeries(request.tabId).catch((e) => console.error('Серия:', e));
-    sendResponse({ ok: true });
-    return false;
+    getSeries().then((s) => {
+      if (s && s.running) {
+        sendResponse({ ok: false, error: 'Серия уже скачивается' });
+        return;
+      }
+      startSeries(request.tabId);
+      sendResponse({ ok: true });
+    });
+    return true; // async
   }
 
   if (request.action === 'cancelSeries') {
-    if (seriesState.running) seriesState.cancel = true;
-    sendResponse({ ok: true });
-    return false;
+    cancelSeries().then(() => sendResponse({ ok: true }));
+    return true; // async
   }
 
   if (request.action === 'getSeriesState') {
-    sendResponse(seriesSnapshot());
-    return false;
+    getSeries().then((s) => sendResponse(snapshotOf(s)));
+    return true; // async
   }
 });
 
@@ -75,36 +119,96 @@ async function runInPage(tabId, func, args = []) {
   return results && results[0] ? results[0].result : undefined;
 }
 
-async function runSeries(tabId) {
-  seriesState.running = true;
-  seriesState.cancel = false;
-  seriesState.tabId = tabId;
-  seriesState.total = 0;
-  seriesState.done = 0;
-  seriesState.phase = 'running';
-  seriesState.message = 'Поиск снимков серии...';
-  broadcastSeries();
+// Инициализировать новую серию и запустить процесс
+async function startSeries(tabId) {
+  await setSeries({
+    running: true,
+    cancel: false,
+    tabId,
+    total: 0,
+    done: 0,
+    items: null,
+    phase: 'running',
+    message: 'Поиск снимков серии...'
+  });
+  ensureKeepAlive();
+  proceedSeries();
+}
+
+// Отметить отмену; если цикл не активен — сразу финализировать
+async function cancelSeries() {
+  const s = await getSeries();
+  if (!s || !s.running) return;
+  await patchSeries({ cancel: true });
+  if (!loopActive) {
+    const cur = await patchSeries({
+      running: false,
+      phase: 'cancelled',
+      message: `Отменено. Скачано ${s.done || 0} из ${s.total || 0}`
+    });
+    broadcast(cur);
+    clearKeepAlive();
+  }
+}
+
+// Основной драйвер: собирает кадры (если нужно) и качает с места обрыва.
+// Безопасно вызывается повторно (resume) — продолжает с сохранённого done.
+async function proceedSeries() {
+  if (loopActive) return;
+  loopActive = true;
+  ensureKeepAlive();
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   try {
-    const info = await runInPage(tabId, psSeriesInfo);
-    let total = info && info.total ? info.total : null;
+    let s = await getSeries();
+    if (!s || !s.running) return;
 
-    const res = await runInPage(tabId, psCollectArks, [total || 9999]);
-    const items = res && res.items ? res.items : [];
-    if (!items.length) {
-      throw new Error('не удалось найти снимки серии на странице');
+    if (s.cancel) {
+      s = await patchSeries({
+        running: false,
+        phase: 'cancelled',
+        message: `Отменено. Скачано ${s.done || 0} из ${s.total || 0}`
+      });
+      broadcast(s);
+      return;
     }
-    if (!total) total = items.length;
 
-    seriesState.total = total;
+    // --- Сбор ARK (только если ещё не собран; на странице нужной вкладки) ---
+    if (!s.items) {
+      broadcast(await patchSeries({ message: 'Поиск снимков серии...' }));
+      const info = await runInPage(s.tabId, psSeriesInfo);
+      let total = info && info.total ? info.total : null;
+
+      const res = await runInPage(s.tabId, psCollectArks, [total || 9999]);
+      const items = res && res.items ? res.items : [];
+      if (!items.length) {
+        s = await patchSeries({
+          running: false,
+          phase: 'error',
+          message: 'Ошибка серии: не удалось найти снимки серии на странице'
+        });
+        broadcast(s);
+        return;
+      }
+      if (!total) total = items.length;
+      s = await patchSeries({ total, items });
+    }
+
+    const total = s.total;
+    const items = s.items;
     // Ширина префикса: минимум 2 знака (01_), 3 знака при total >= 100
     const padLength = Math.max(2, String(total).length);
 
-    for (const it of items) {
-      if (seriesState.cancel) break;
+    // --- Скачивание с последнего сохранённого кадра (не зависит от вкладки) ---
+    for (let i = s.done || 0; i < items.length; i++) {
+      const cur = await getSeries();
+      if (!cur || !cur.running || cur.cancel) {
+        s = cur || s;
+        break;
+      }
 
+      const it = items[i];
       const frameNum = it.index + 1;
       // it.ark всегда формата "3:1:XXXX"; подставляем его в шаблон deepzoom.
       const url = `https://sg30p0.familysearch.org/service/records/storage/deepzoomcloud/dz/v1/${it.ark}/$dist`;
@@ -112,35 +216,50 @@ async function runSeries(tabId) {
       const code = it.ark.split(':').pop();
       const filename = String(frameNum).padStart(padLength, '0') + '_' + code;
 
-      seriesState.message = `Скачивается ${frameNum} / ${total}...`;
-      broadcastSeries();
+      broadcast(await patchSeries({ message: `Скачивается ${frameNum} / ${total}...` }));
 
       await downloadImage(url, filename, true);
-      seriesState.done++;
-      broadcastSeries();
+      s = await patchSeries({ done: i + 1 });
+      broadcast(s);
 
       // Пауза, чтобы не перегружать сервер
       await sleep(400);
     }
 
-    if (seriesState.cancel) {
-      seriesState.phase = 'cancelled';
-      seriesState.message = `Отменено. Скачано ${seriesState.done} из ${total}`;
-    } else if (seriesState.done < total) {
-      seriesState.phase = 'partial';
-      seriesState.message = `Скачано ${seriesState.done} из ${total} (не все кадры удалось найти)`;
+    // --- Финализация ---
+    const fin = await getSeries();
+    if (fin && fin.cancel) {
+      s = await patchSeries({
+        running: false,
+        phase: 'cancelled',
+        message: `Отменено. Скачано ${fin.done || 0} из ${total}`
+      });
+    } else if (fin && (fin.done || 0) < total) {
+      s = await patchSeries({
+        running: false,
+        phase: 'partial',
+        message: `Скачано ${fin.done || 0} из ${total} (не все кадры удалось найти)`
+      });
     } else {
-      seriesState.phase = 'done';
-      seriesState.message = `Серия скачана! (${seriesState.done} из ${total})`;
+      s = await patchSeries({
+        running: false,
+        phase: 'done',
+        message: `Серия скачана! (${total} из ${total})`
+      });
     }
+    broadcast(s);
   } catch (error) {
     console.error('Ошибка при скачивании серии:', error);
-    seriesState.phase = 'error';
-    seriesState.message = `Ошибка серии: ${error.message}`;
+    const s = await patchSeries({
+      running: false,
+      phase: 'error',
+      message: `Ошибка серии: ${error.message}`
+    });
+    broadcast(s);
   } finally {
-    seriesState.running = false;
-    seriesState.cancel = false;
-    broadcastSeries();
+    loopActive = false;
+    const s = await getSeries();
+    if (!s || !s.running) clearKeepAlive();
   }
 }
 
