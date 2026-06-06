@@ -77,10 +77,10 @@ const themeDefinitions = {
   }
 };
 
-// Получить текущую тему (по умолчанию theme-4 - Винтаж зелень)
+// Получить текущую тему (по умолчанию theme-1 - Архивный коричневый)
 function getCurrentTheme() {
   const saved = localStorage.getItem('geneadb-theme');
-  return saved || 'theme-4';
+  return saved || 'theme-1';
 }
 
 // Применить тему
