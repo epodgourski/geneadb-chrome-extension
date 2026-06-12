@@ -222,6 +222,14 @@ function initThemeMenu() {
 // УТИЛИТЫ
 // ============================================
 
+function debugLog(msg) {
+  const el = document.getElementById('debug-log');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
 async function runInPage(tabId, func, args = [], world) {
   const options = { target: { tabId }, func, args };
   if (world) options.world = world;
@@ -314,10 +322,13 @@ const sources = {
     detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
 
     scanPage: async (tab) => {
-      const signedUrl = await runInPage(tab.id, async () => {
+      debugLog('Запуск scanPage для Яндекс...');
+      const result = await runInPage(tab.id, async () => {
         const node = window.__NEXT_DATA__?.props?.pageProps?.currentNode;
-        if (!node) return null;
+        if (!node) return { error: '__NEXT_DATA__.props.pageProps.currentNode не найден' };
+
         const nodeId = node.thumbNodeId || node.id;
+        const namepath = node.namepath || '';
 
         const response = await fetch('https://ya.ru/archive/api/image-grant', {
           method: 'POST',
@@ -325,11 +336,32 @@ const sources = {
           body: JSON.stringify({ nodeId, type: 'original' }),
           credentials: 'include'
         });
-        if (!response.ok) return null;
+        if (!response.ok) return { error: 'image-grant HTTP ' + response.status, nodeId, namepath };
         const data = await response.json();
-        return 'https://ya.ru' + data.url;
+        return { signedUrl: 'https://ya.ru' + data.url, nodeId, namepath };
       }, [], 'MAIN');
-      return signedUrl ? { signedUrl } : null;
+
+      if (!result) {
+        debugLog('runInPage вернул null (скрипт не выполнился)');
+        return null;
+      }
+      if (result.error) {
+        debugLog('Ошибка: ' + result.error);
+        if (result.nodeId) debugLog('nodeId: ' + result.nodeId);
+        if (result.namepath) debugLog('namepath: ' + result.namepath);
+        return null;
+      }
+
+      debugLog('nodeId: ' + result.nodeId);
+      debugLog('namepath: ' + result.namepath);
+      debugLog('signedUrl: ' + result.signedUrl.substring(0, 80) + '...');
+
+      const filename = result.namepath
+        ? result.namepath.split('/').pop().replace(/\.[^.]+$/, '')
+        : null;
+      if (filename) debugLog('filename: ' + filename);
+
+      return { signedUrl: result.signedUrl, filename };
     },
 
     parse: (url, extra) => {
@@ -338,14 +370,18 @@ const sources = {
       if (!match) return null;
       const page = match[1];
       if (!extra || !extra.signedUrl) return null;
-      return { page, signedUrl: extra.signedUrl };
+      return { page, signedUrl: extra.signedUrl, filename: extra.filename };
     },
 
     generateUrl: (parsed) => parsed.signedUrl || null,
 
-    getFilename: (parsed) => `f${String(parsed.page).padStart(4, '0')}`,
+    getFilename: (parsed) => parsed.filename || `f${String(parsed.page).padStart(4, '0')}`,
 
-    displayText: (parsed) => `Страница: ${parsed.page}`
+    displayText: (parsed) => {
+      let text = `Страница: ${parsed.page}`;
+      if (parsed.filename) text += `<br/>Файл: ${parsed.filename}`;
+      return text;
+    }
   }
 };
 
@@ -600,20 +636,24 @@ async function setupSeriesButton(tab, sourceKey) {
 // Функция обработки текущей вкладки
 async function processCurrentTab(tab) {
   try {
+    debugLog('URL: ' + tab.url);
     const sourceDetection = detectSource(tab.url);
 
     if (!sourceDetection) {
+      debugLog('Источник не определён');
       document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с поддерживаемого источника';
       document.getElementById('download-btn').disabled = true;
       return;
     }
 
+    debugLog('Источник: ' + sourceDetection.key);
     currentSourceConfig = sourceDetection.config;
 
     let extra = null;
     if (currentSourceConfig.needsPageScan) {
       document.getElementById('url-display').textContent = 'Сканирование страницы...';
       extra = await currentSourceConfig.scanPage(tab);
+      debugLog('scanPage результат: ' + (extra ? JSON.stringify(extra).substring(0, 120) : 'null'));
       if (!extra) {
         document.getElementById('url-display').textContent = 'Ошибка: не удалось найти изображение на странице';
         document.getElementById('download-btn').disabled = true;
