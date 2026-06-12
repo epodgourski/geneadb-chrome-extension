@@ -323,22 +323,24 @@ const sources = {
 
     scanPage: async (tab) => {
       debugLog('Запуск scanPage для Яндекс...');
-      const result = await runInPage(tab.id, async () => {
-        const scriptEl = document.getElementById('__NEXT_DATA__');
-        if (!scriptEl) return { error: 'Тег #__NEXT_DATA__ не найден' };
 
-        let nextData;
+      const urlMatch = tab.url.match(/\/archive\/catalog\/([a-f0-9-]{36})\/(\d+)/);
+      if (!urlMatch) {
+        debugLog('Не удалось извлечь nodeId из URL: ' + tab.url);
+        return null;
+      }
+      const nodeId = urlMatch[1];
+      debugLog('nodeId из URL: ' + nodeId);
+
+      const result = await runInPage(tab.id, async (nodeId) => {
+        let namepath = '';
         try {
-          nextData = JSON.parse(scriptEl.textContent);
-        } catch (e) {
-          return { error: 'Не удалось распарсить JSON: ' + e.message };
-        }
-
-        const node = nextData?.props?.pageProps?.currentNode;
-        if (!node) return { error: 'currentNode не найден в __NEXT_DATA__' };
-
-        const nodeId = node.thumbNodeId || node.id;
-        const namepath = node.namepath || '';
+          const scriptEl = document.getElementById('__NEXT_DATA__');
+          if (scriptEl) {
+            const nextData = JSON.parse(scriptEl.textContent);
+            namepath = nextData?.props?.pageProps?.currentNode?.namepath || '';
+          }
+        } catch (e) { /* namepath необязателен */ }
 
         const response = await fetch('https://ya.ru/archive/api/image-grant', {
           method: 'POST',
@@ -346,10 +348,10 @@ const sources = {
           body: JSON.stringify({ nodeId, type: 'original' }),
           credentials: 'include'
         });
-        if (!response.ok) return { error: 'image-grant HTTP ' + response.status, nodeId, namepath };
+        if (!response.ok) return { error: 'image-grant HTTP ' + response.status, namepath };
         const data = await response.json();
-        return { signedUrl: 'https://ya.ru' + data.url, nodeId, namepath };
-      });
+        return { signedUrl: 'https://ya.ru' + data.url, namepath };
+      }, [nodeId]);
 
       if (!result) {
         debugLog('runInPage вернул null (скрипт не выполнился)');
@@ -357,12 +359,10 @@ const sources = {
       }
       if (result.error) {
         debugLog('Ошибка: ' + result.error);
-        if (result.nodeId) debugLog('nodeId: ' + result.nodeId);
         if (result.namepath) debugLog('namepath: ' + result.namepath);
         return null;
       }
 
-      debugLog('nodeId: ' + result.nodeId);
       debugLog('namepath: ' + result.namepath);
       debugLog('signedUrl: ' + result.signedUrl.substring(0, 80) + '...');
 
