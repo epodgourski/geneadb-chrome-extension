@@ -323,7 +323,8 @@ const sources = {
 
     scanPage: async (tab) => {
       debugLog('Запуск scanPage для Яндекс...');
-      const result = await runInPage(tab.id, () => {
+
+      const meta = await runInPage(tab.id, () => {
         const scriptEl = document.getElementById('__NEXT_DATA__');
         if (!scriptEl) return { error: '#__NEXT_DATA__ не найден' };
         let nextData;
@@ -335,25 +336,51 @@ const sources = {
         const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
         const filename = node.namepath ? node.namepath.split('/').pop() : '';
 
-        const entries = performance.getEntriesByType('resource');
-        const imageEntry = entries.find(e =>
-          e.name.includes('/archive/api/image') && e.name.includes('type=original')
-        );
-        const imageUrl = imageEntry ? imageEntry.name : '';
-
-        return { pageNum, filename, imageUrl };
+        return { pageNum, filename };
       });
 
-      if (!result || result.error) {
-        debugLog(result ? 'Ошибка: ' + result.error : 'runInPage вернул null');
+      if (!meta || meta.error) {
+        debugLog(meta ? 'Ошибка: ' + meta.error : 'runInPage вернул null');
         return null;
       }
 
-      debugLog('pageNum: ' + result.pageNum);
-      debugLog('filename: ' + result.filename);
-      debugLog('imageUrl: ' + (result.imageUrl || '(не найден, нужен zoom)'));
+      debugLog('pageNum: ' + meta.pageNum);
+      debugLog('filename: ' + meta.filename);
 
-      return result;
+      debugLog('Ищем URL оригинала в performance entries...');
+      const imageUrl = await runInPage(tab.id, async () => {
+        function findOriginalUrl() {
+          const entries = performance.getEntriesByType('resource');
+          const entry = entries.find(e =>
+            e.name.includes('/archive/api/image') && e.name.includes('type=original')
+          );
+          return entry ? entry.name : null;
+        }
+
+        const existing = findOriginalUrl();
+        if (existing) return existing;
+
+        const header = document.querySelector('[class*="ViewerHeader"]');
+        const btns = header?.querySelectorAll('button, [role="button"]');
+        if (!btns || btns.length < 3) return null;
+        for (let i = 0; i < 8; i++) {
+          btns[2].click();
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline) {
+          const found = findOriginalUrl();
+          if (found) return found;
+          await new Promise(r => setTimeout(r, 500));
+        }
+        return null;
+      }, [], 'MAIN');
+
+      debugLog('imageUrl: ' + (imageUrl || 'НЕ НАЙДЕН'));
+      if (!imageUrl) return null;
+
+      return { pageNum: meta.pageNum, filename: meta.filename, imageUrl };
     },
 
     parse: (url, extra) => {
