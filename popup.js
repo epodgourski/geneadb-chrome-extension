@@ -316,7 +316,7 @@ const sources = {
 
   yandex: {
     name: 'Яндекс Архивы',
-    needsAuth: false,
+    needsAuth: true,
     needsPageScan: true,
 
     detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
@@ -332,12 +332,16 @@ const sources = {
         const node = nextData?.props?.pageProps?.currentNode;
         if (!node) return { error: 'currentNode не найден' };
 
-        const buildId = nextData?.buildId || '';
-        const parentId = location.pathname.match(/\/catalog\/([a-f0-9-]{36})/)?.[1] || '';
         const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
         const filename = node.namepath ? node.namepath.split('/').pop() : '';
 
-        return { buildId, parentId, pageNum, filename };
+        const entries = performance.getEntriesByType('resource');
+        const imageEntry = entries.find(e =>
+          e.name.includes('/archive/api/image') && e.name.includes('type=original')
+        );
+        const imageUrl = imageEntry ? imageEntry.name : '';
+
+        return { pageNum, filename, imageUrl };
       });
 
       if (!result || result.error) {
@@ -345,10 +349,9 @@ const sources = {
         return null;
       }
 
-      debugLog('parentId: ' + result.parentId);
-      debugLog('buildId: ' + result.buildId);
       debugLog('pageNum: ' + result.pageNum);
       debugLog('filename: ' + result.filename);
+      debugLog('imageUrl: ' + (result.imageUrl || '(не найден, нужен zoom)'));
 
       return result;
     },
@@ -357,14 +360,12 @@ const sources = {
       if (!extra || !extra.pageNum) return null;
       return {
         page: extra.pageNum,
-        parentId: extra.parentId,
-        buildId: extra.buildId,
         filename: extra.filename ? extra.filename.replace(/\.[^.]+$/, '') : null,
-        rawFilename: extra.filename
+        imageUrl: extra.imageUrl
       };
     },
 
-    generateUrl: (parsed) => `Яндекс Архивы — страница ${parsed.page}`,
+    generateUrl: (parsed) => parsed.imageUrl || null,
 
     getFilename: (parsed) => parsed.filename || `f${String(parsed.page).padStart(4, '0')}`,
 
@@ -372,57 +373,6 @@ const sources = {
       let text = `Страница: ${parsed.page}`;
       if (parsed.filename) text += `<br/>Файл: ${parsed.filename}`;
       return text;
-    },
-
-    download: async (tabId, parsed) => {
-      const filename = parsed.rawFilename || `page-${parsed.page}.jpg`;
-      return await runInPage(tabId, async (filename) => {
-        window._capturedBlob = null;
-        const _origFetch = window.fetch;
-        window.fetch = async function(...args) {
-          const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-          const response = await _origFetch.apply(this, args);
-          if (url.includes('/archive/api/image') && url.includes('type=original')) {
-            response.clone().blob().then(blob => {
-              if (blob.size > 500000) window._capturedBlob = blob;
-            }).catch(() => {});
-          }
-          return response;
-        };
-
-        const header = document.querySelector('[class*="ViewerHeader"]');
-        const btns = header?.querySelectorAll('button, [role="button"]');
-        if (!btns || btns.length < 3) {
-          window.fetch = _origFetch;
-          return { success: false, error: 'Кнопки zoom не найдены' };
-        }
-        for (let i = 0; i < 8; i++) {
-          btns[2].click();
-          await new Promise(r => setTimeout(r, 200));
-        }
-
-        const deadline = Date.now() + 15000;
-        while (!window._capturedBlob && Date.now() < deadline) {
-          await new Promise(r => setTimeout(r, 500));
-        }
-
-        window.fetch = _origFetch;
-
-        if (!window._capturedBlob) return { success: false, error: 'Blob не получен за 15 сек' };
-
-        const blobUrl = URL.createObjectURL(window._capturedBlob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-
-        const sizeMB = (window._capturedBlob.size / 1024 / 1024).toFixed(1);
-        window._capturedBlob = null;
-        return { success: true, filename, sizeMB };
-      }, [filename], 'MAIN');
     }
   }
 };
@@ -737,32 +687,7 @@ async function processCurrentTab(tab) {
     const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = false;
     downloadBtn.onclick = async () => {
-      if (currentSourceConfig.download) {
-        const status = document.getElementById('status');
-        status.textContent = '⏳ Загрузка (zoom + перехват оригинала)...';
-        status.classList.remove('success', 'error');
-        status.classList.add('info');
-        debugLog('Запуск download через перехват fetch...');
-        try {
-          const dlResult = await currentSourceConfig.download(tab.id, result.parsed);
-          if (dlResult && dlResult.success) {
-            debugLog('Скачан: ' + dlResult.filename + ' (' + dlResult.sizeMB + ' MB)');
-            status.textContent = `✓ Скачан: ${dlResult.filename} (${dlResult.sizeMB} MB)`;
-            status.classList.remove('info', 'error');
-            status.classList.add('success');
-            setTimeout(() => { status.classList.remove('success'); }, 4000);
-          } else {
-            throw new Error(dlResult?.error || 'Не удалось скачать');
-          }
-        } catch (error) {
-          debugLog('Ошибка download: ' + error.message);
-          status.textContent = `✗ Ошибка: ${error.message}`;
-          status.classList.remove('info', 'success');
-          status.classList.add('error');
-        }
-      } else {
-        await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
-      }
+      await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
     };
 
     // Проверяем, есть ли на странице серия снимков (FamilySearch)
