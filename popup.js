@@ -316,75 +316,55 @@ const sources = {
 
   yandex: {
     name: 'Яндекс Архивы',
-    needsAuth: true,
+    needsAuth: false,
     needsPageScan: true,
 
     detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
 
     scanPage: async (tab) => {
       debugLog('Запуск scanPage для Яндекс...');
-
-      const result = await runInPage(tab.id, async () => {
+      const result = await runInPage(tab.id, () => {
         const scriptEl = document.getElementById('__NEXT_DATA__');
-        if (!scriptEl) return { error: 'Тег #__NEXT_DATA__ не найден' };
-
+        if (!scriptEl) return { error: '#__NEXT_DATA__ не найден' };
         let nextData;
-        try {
-          nextData = JSON.parse(scriptEl.textContent);
-        } catch (e) {
-          return { error: 'Не удалось распарсить JSON: ' + e.message };
-        }
+        try { nextData = JSON.parse(scriptEl.textContent); } catch (e) { return { error: 'JSON: ' + e.message }; }
 
         const node = nextData?.props?.pageProps?.currentNode;
-        if (!node) return { error: 'currentNode не найден в __NEXT_DATA__' };
+        if (!node) return { error: 'currentNode не найден' };
 
-        const nodeId = node.thumbNodeId || node.id;
-        const namepath = node.namepath || '';
+        const buildId = nextData?.buildId || '';
+        const parentId = location.pathname.match(/\/catalog\/([a-f0-9-]{36})/)?.[1] || '';
+        const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
+        const filename = node.namepath ? node.namepath.split('/').pop() : '';
 
-        const response = await fetch('https://ya.ru/archive/api/image-grant', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nodeId, type: 'original' }),
-          credentials: 'include'
-        });
-        if (!response.ok) return { error: 'image-grant HTTP ' + response.status, nodeId, namepath };
-        const data = await response.json();
-        return { signedUrl: 'https://ya.ru' + data.url, nodeId, namepath };
+        return { buildId, parentId, pageNum, filename };
       });
 
-      if (!result) {
-        debugLog('runInPage вернул null (скрипт не выполнился)');
-        return null;
-      }
-      if (result.error) {
-        debugLog('Ошибка: ' + result.error);
-        if (result.nodeId) debugLog('nodeId: ' + result.nodeId);
-        if (result.namepath) debugLog('namepath: ' + result.namepath);
+      if (!result || result.error) {
+        debugLog(result ? 'Ошибка: ' + result.error : 'runInPage вернул null');
         return null;
       }
 
-      debugLog('nodeId: ' + result.nodeId);
-      debugLog('namepath: ' + result.namepath);
-      debugLog('signedUrl: ' + result.signedUrl.substring(0, 80) + '...');
+      debugLog('parentId: ' + result.parentId);
+      debugLog('buildId: ' + result.buildId);
+      debugLog('pageNum: ' + result.pageNum);
+      debugLog('filename: ' + result.filename);
 
-      const filename = result.namepath
-        ? result.namepath.split('/').pop().replace(/\.[^.]+$/, '')
-        : null;
-      if (filename) debugLog('filename: ' + filename);
-
-      return { signedUrl: result.signedUrl, filename };
+      return result;
     },
 
     parse: (url, extra) => {
-      const cleanUrl = url.split('?')[0];
-      const match = cleanUrl.match(/ya\.ru\/archive\/catalog\/[^/]+\/(\d+)/);
-      if (!match) return null;
-      const page = match[1];
-      if (!extra || !extra.signedUrl) return null;
-      return { page, signedUrl: extra.signedUrl, filename: extra.filename };
+      if (!extra || !extra.pageNum) return null;
+      return {
+        page: extra.pageNum,
+        parentId: extra.parentId,
+        buildId: extra.buildId,
+        filename: extra.filename ? extra.filename.replace(/\.[^.]+$/, '') : null,
+        rawFilename: extra.filename
+      };
     },
 
-    generateUrl: (parsed) => parsed.signedUrl || null,
+    generateUrl: (parsed) => `Яндекс Архивы — страница ${parsed.page}`,
 
     getFilename: (parsed) => parsed.filename || `f${String(parsed.page).padStart(4, '0')}`,
 
@@ -392,6 +372,57 @@ const sources = {
       let text = `Страница: ${parsed.page}`;
       if (parsed.filename) text += `<br/>Файл: ${parsed.filename}`;
       return text;
+    },
+
+    download: async (tabId, parsed) => {
+      const filename = parsed.rawFilename || `page-${parsed.page}.jpg`;
+      return await runInPage(tabId, async (filename) => {
+        window._capturedBlob = null;
+        const _origFetch = window.fetch;
+        window.fetch = async function(...args) {
+          const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+          const response = await _origFetch.apply(this, args);
+          if (url.includes('/archive/api/image') && url.includes('type=original')) {
+            response.clone().blob().then(blob => {
+              if (blob.size > 500000) window._capturedBlob = blob;
+            }).catch(() => {});
+          }
+          return response;
+        };
+
+        const header = document.querySelector('[class*="ViewerHeader"]');
+        const btns = header?.querySelectorAll('button, [role="button"]');
+        if (!btns || btns.length < 3) {
+          window.fetch = _origFetch;
+          return { success: false, error: 'Кнопки zoom не найдены' };
+        }
+        for (let i = 0; i < 8; i++) {
+          btns[2].click();
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        const deadline = Date.now() + 15000;
+        while (!window._capturedBlob && Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+
+        window.fetch = _origFetch;
+
+        if (!window._capturedBlob) return { success: false, error: 'Blob не получен за 15 сек' };
+
+        const blobUrl = URL.createObjectURL(window._capturedBlob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+
+        const sizeMB = (window._capturedBlob.size / 1024 / 1024).toFixed(1);
+        window._capturedBlob = null;
+        return { success: true, filename, sizeMB };
+      }, [filename], 'MAIN');
     }
   }
 };
@@ -706,7 +737,32 @@ async function processCurrentTab(tab) {
     const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = false;
     downloadBtn.onclick = async () => {
-      await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
+      if (currentSourceConfig.download) {
+        const status = document.getElementById('status');
+        status.textContent = '⏳ Загрузка (zoom + перехват оригинала)...';
+        status.classList.remove('success', 'error');
+        status.classList.add('info');
+        debugLog('Запуск download через перехват fetch...');
+        try {
+          const dlResult = await currentSourceConfig.download(tab.id, result.parsed);
+          if (dlResult && dlResult.success) {
+            debugLog('Скачан: ' + dlResult.filename + ' (' + dlResult.sizeMB + ' MB)');
+            status.textContent = `✓ Скачан: ${dlResult.filename} (${dlResult.sizeMB} MB)`;
+            status.classList.remove('info', 'error');
+            status.classList.add('success');
+            setTimeout(() => { status.classList.remove('success'); }, 4000);
+          } else {
+            throw new Error(dlResult?.error || 'Не удалось скачать');
+          }
+        } catch (error) {
+          debugLog('Ошибка download: ' + error.message);
+          status.textContent = `✗ Ошибка: ${error.message}`;
+          status.classList.remove('info', 'success');
+          status.classList.add('error');
+        }
+      } else {
+        await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
+      }
     };
 
     // Проверяем, есть ли на странице серия снимков (FamilySearch)
