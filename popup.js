@@ -324,8 +324,18 @@ const sources = {
     scanPage: async (tab) => {
       debugLog('Запуск scanPage для Яндекс...');
       const result = await runInPage(tab.id, async () => {
-        const node = window.__NEXT_DATA__?.props?.pageProps?.currentNode;
-        if (!node) return { error: '__NEXT_DATA__.props.pageProps.currentNode не найден' };
+        const scriptEl = document.getElementById('__NEXT_DATA__');
+        if (!scriptEl) return { error: 'Тег #__NEXT_DATA__ не найден' };
+
+        let nextData;
+        try {
+          nextData = JSON.parse(scriptEl.textContent);
+        } catch (e) {
+          return { error: 'Не удалось распарсить JSON: ' + e.message };
+        }
+
+        const node = nextData?.props?.pageProps?.currentNode;
+        if (!node) return { error: 'currentNode не найден в __NEXT_DATA__' };
 
         const nodeId = node.thumbNodeId || node.id;
         const namepath = node.namepath || '';
@@ -339,7 +349,7 @@ const sources = {
         if (!response.ok) return { error: 'image-grant HTTP ' + response.status, nodeId, namepath };
         const data = await response.json();
         return { signedUrl: 'https://ya.ru' + data.url, nodeId, namepath };
-      }, [], 'MAIN');
+      });
 
       if (!result) {
         debugLog('runInPage вернул null (скрипт не выполнился)');
