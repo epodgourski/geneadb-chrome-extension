@@ -219,6 +219,17 @@ function initThemeMenu() {
 }
 
 // ============================================
+// УТИЛИТЫ
+// ============================================
+
+async function runInPage(tabId, func, args = [], world) {
+  const options = { target: { tabId }, func, args };
+  if (world) options.world = world;
+  const results = await chrome.scripting.executeScript(options);
+  return results && results[0] ? results[0].result : undefined;
+}
+
+// ============================================
 // КОНФИГУРАЦИЯ ИСТОЧНИКОВ
 // ============================================
 
@@ -297,19 +308,28 @@ const sources = {
 
   yandex: {
     name: 'Яндекс Архивы',
-    needsAuth: false,
+    needsAuth: true,
     needsPageScan: true,
 
     detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
 
-    scanPage: async (url) => {
-      const response = await fetch(url);
-      const html = await response.text();
-      const pathMatch = html.match(/"thumb":\{"path":"([^"]+)"/);
-      if (!pathMatch) return null;
-      const path = pathMatch[1].replace(/\\u0026/g, '&');
-      const idMatch = path.match(/[?&]id=([a-f0-9-]+)/);
-      return idMatch ? { imageId: idMatch[1] } : null;
+    scanPage: async (tab) => {
+      const signedUrl = await runInPage(tab.id, async () => {
+        const node = window.__NEXT_DATA__?.props?.pageProps?.currentNode;
+        if (!node) return null;
+        const nodeId = node.thumbNodeId || node.id;
+
+        const response = await fetch('https://ya.ru/archive/api/image-grant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodeId, type: 'original' }),
+          credentials: 'include'
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        return 'https://ya.ru' + data.url;
+      }, [], 'MAIN');
+      return signedUrl ? { signedUrl } : null;
     },
 
     parse: (url, extra) => {
@@ -317,18 +337,15 @@ const sources = {
       const match = cleanUrl.match(/ya\.ru\/archive\/catalog\/[^/]+\/(\d+)/);
       if (!match) return null;
       const page = match[1];
-      if (!extra || !extra.imageId) return null;
-      return { page, imageId: extra.imageId };
+      if (!extra || !extra.signedUrl) return null;
+      return { page, signedUrl: extra.signedUrl };
     },
 
-    generateUrl: (parsed) => {
-      if (!parsed.imageId) return null;
-      return `https://ya.ru/archive/api/image?id=${parsed.imageId}&type=original`;
-    },
+    generateUrl: (parsed) => parsed.signedUrl || null,
 
     getFilename: (parsed) => `f${String(parsed.page).padStart(4, '0')}`,
 
-    displayText: (parsed) => `Страница: ${parsed.page}<br/>ID: ${parsed.imageId}`
+    displayText: (parsed) => `Страница: ${parsed.page}`
   }
 };
 
@@ -596,7 +613,7 @@ async function processCurrentTab(tab) {
     let extra = null;
     if (currentSourceConfig.needsPageScan) {
       document.getElementById('url-display').textContent = 'Сканирование страницы...';
-      extra = await currentSourceConfig.scanPage(tab.url);
+      extra = await currentSourceConfig.scanPage(tab);
       if (!extra) {
         document.getElementById('url-display').textContent = 'Ошибка: не удалось найти изображение на странице';
         document.getElementById('download-btn').disabled = true;
