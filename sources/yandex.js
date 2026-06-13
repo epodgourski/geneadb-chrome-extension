@@ -6,7 +6,7 @@ export const yandex = {
   needsPageScan: true,
   directDownload: true,
 
-  detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
+  detect: (url) => /(ya\.ru|yandex\.ru)\/archive\/catalog\/[^/]+\/\d+/.test(url),
 
   scanPage: async (tab) => {
     debugLog('Запуск scanPage для Яндекс...');
