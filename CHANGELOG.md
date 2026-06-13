@@ -6,6 +6,36 @@
 
 ---
 
+## [2026.06.13.01] — 2026-06-13
+
+### Изменено
+- **Яндекс Архивы: полностью переработан механизм скачивания.**
+  Старый подход (парсинг HTML → `thumb.path` → `image?id=...`) заменён на новый:
+  1. Метаданные (`currentNode`, `filename`) читаются из `<script id="__NEXT_DATA__">`;
+     при SPA-навигации (без перезагрузки) данные обновляются через запрос к
+     Next.js data API (`/_next/data/{buildId}/.../pageNum.json`).
+  2. URL оригинала ищется в `performance.getEntriesByType('resource')` по паттерну
+     `/archive/api/image?id={currentId}&type=original`.
+  3. Если оригинал ещё не загружен (пользователь не зумил), расширение
+     автоматически кликает zoom+ и ожидает появления URL (до 15 сек).
+  4. Скачивание: `fetch` с `credentials: 'include'` выполняется **в контексте
+     страницы** (`world: 'MAIN'`), что обеспечивает передачу cookies ya.ru.
+     Результат (blob → dataURL) передаётся в `chrome.downloads.download`.
+  5. Имя файла берётся из `currentNode.namepath` (например `609-2-95-00000038.jpg`)
+     вместо прежнего `f0001.jpeg`.
+
+### Добавлено
+- Утилита `runInPage(tabId, func, args, world)` — обёртка над
+  `chrome.scripting.executeScript` с поддержкой параметра `world` для
+  выполнения скриптов в основном контексте страницы (`MAIN`).
+- Функция `downloadDirect` для скачивания через fetch в контексте страницы
+  (обход ограничения: service worker не имеет cookies ya.ru).
+- Функция `debugLog` и блок `#debug-log` в popup для отладки — показывает
+  пошаговый статус сканирования и скачивания.
+- Обработчик `downloadDirect` в `background.js` (запасной вариант).
+
+---
+
 ## [2026.06.06.07] — 2026-06-06
 
 ### Добавлено
