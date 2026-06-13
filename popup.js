@@ -325,32 +325,58 @@ const sources = {
     scanPage: async (tab) => {
       debugLog('Запуск scanPage для Яндекс...');
 
-      const meta = await runInPage(tab.id, () => {
+      // buildId из <script> (стабилен), parentId/pageNum из URL (актуальны при SPA)
+      const parentId = tab.url.match(/\/catalog\/([a-f0-9-]{36})/)?.[1];
+      const pageNum = tab.url.match(/\/(\d+)(?:\?.*)?$/)?.[1];
+      debugLog('URL: parentId=' + (parentId || 'null') + ' pageNum=' + (pageNum || 'null'));
+
+      const meta = await runInPage(tab.id, async (parentId, pageNum) => {
         const scriptEl = document.getElementById('__NEXT_DATA__');
         if (!scriptEl) return { error: '#__NEXT_DATA__ не найден' };
         let nextData;
         try { nextData = JSON.parse(scriptEl.textContent); } catch (e) { return { error: 'JSON: ' + e.message }; }
 
-        const node = nextData?.props?.pageProps?.currentNode;
+        const buildId = nextData.buildId;
+        if (!buildId) return { error: 'buildId не найден' };
+
+        // Проверяем: совпадает ли currentNode с текущей страницей
+        const cachedNode = nextData?.props?.pageProps?.currentNode;
+        const cachedPage = cachedNode?.namepath?.match(/(\d+)\.\w+$/)?.[1];
+        const isStale = !cachedNode || cachedPage !== pageNum.padStart(cachedPage?.length || 1, '0');
+
+        let node = cachedNode;
+        if (isStale) {
+          // SPA-навигация: данные устарели, фетчим актуальные
+          try {
+            const resp = await fetch(
+              '/archive/_next/data/' + buildId + '/catalog/' + parentId + '/' + pageNum + '.json?parentNodeId=' + parentId,
+              { credentials: 'include' }
+            );
+            if (resp.ok) {
+              const data = await resp.json();
+              node = data?.pageProps?.currentNode;
+            }
+          } catch (e) { /* fallback to cached */ }
+        }
+
         if (!node) return { error: 'currentNode не найден' };
 
         const currentId = node.thumbNodeId || node.id;
-        const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
         const filename = node.namepath ? node.namepath.split('/').pop() : '';
 
         const pattern = '/archive/api/image?id=' + currentId + '&type=original';
         const entries = performance.getEntriesByType('resource');
         const entry = entries.find(e => e.name.includes(pattern));
 
-        return { pageNum, filename, currentId, imageUrl: entry ? entry.name : null };
-      });
+        return { pageNum, filename, currentId, imageUrl: entry ? entry.name : null, stale: isStale };
+      }, [parentId, pageNum]);
 
       if (!meta || meta.error) {
         debugLog(meta ? 'Ошибка: ' + meta.error : 'runInPage вернул null');
         return null;
       }
 
-      debugLog('currentId: ' + meta.currentId);
+      debugLog('currentId: ' + meta.currentId + (meta.stale ? ' (обновлён через data API)' : ' (из кэша)'));
       debugLog('pageNum: ' + meta.pageNum);
       debugLog('filename: ' + meta.filename);
 
