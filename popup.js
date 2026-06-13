@@ -487,37 +487,34 @@ function requestDownload(resultUrl, filename, needsAuth = true) {
 
 // Прямая загрузка через chrome.downloads (браузер сам подложит cookies)
 async function downloadDirect(resultUrl, filename) {
-  try {
-    const status = document.getElementById('status');
-    status.textContent = '⏳ Загрузка документа...';
-    status.classList.remove('success', 'error');
-    status.classList.add('info');
+  const status = document.getElementById('status');
+  status.textContent = '⏳ Загрузка документа...';
+  status.classList.remove('success', 'error');
+  status.classList.add('info');
 
-    console.log('Прямая загрузка через chrome.downloads:', resultUrl);
+  console.log('Прямая загрузка через chrome.downloads:', resultUrl);
+  debugLog('downloadDirect: ' + resultUrl);
 
-    await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { action: 'downloadDirect', url: resultUrl, filename: filename },
-        (result) => {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else if (result && result.success) resolve(result);
-          else reject(new Error(result ? result.error : 'Неизвестная ошибка'));
-        }
-      );
-    });
-
-    status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
-    status.classList.remove('info', 'error');
-    status.classList.add('success');
-    setTimeout(() => { status.classList.remove('success'); }, 3000);
-
-  } catch (error) {
-    console.error('Ошибка при загрузке:', error);
-    const status = document.getElementById('status');
-    status.textContent = `✗ Ошибка: ${error.message}`;
-    status.classList.remove('info', 'success');
-    status.classList.add('error');
-  }
+  chrome.downloads.download(
+    { url: resultUrl, filename: `${filename}.jpeg`, saveAs: false },
+    (downloadId) => {
+      const err = chrome.runtime.lastError;
+      if (err) {
+        console.error('chrome.downloads ошибка:', err.message);
+        debugLog('Ошибка downloads: ' + err.message);
+        status.textContent = `✗ Ошибка: ${err.message}`;
+        status.classList.remove('info', 'success');
+        status.classList.add('error');
+      } else {
+        console.log('Загрузка начата, ID:', downloadId);
+        debugLog('Загрузка начата, ID: ' + downloadId);
+        status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
+        status.classList.remove('info', 'error');
+        status.classList.add('success');
+        setTimeout(() => { status.classList.remove('success'); }, 3000);
+      }
+    }
+  );
 }
 
 // Функция для загрузки одного файла через Service Worker (с индикацией в UI)
