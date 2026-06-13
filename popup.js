@@ -116,7 +116,7 @@ function applyTheme(themeId) {
   });
   
   // Обновляем кнопки
-  document.querySelectorAll('#copy-btn, #download-btn, #download-series-btn').forEach(btn => {
+  document.querySelectorAll('#download-btn, #download-series-btn').forEach(btn => {
     btn.style.backgroundColor = theme.colors.accent;
     btn.style.borderColor = theme.colors.accent;
   });
@@ -225,9 +225,11 @@ function initThemeMenu() {
 function debugLog(msg) {
   const el = document.getElementById('debug-log');
   if (!el) return;
-  el.style.display = 'block';
+  // debug-блок скрыт по умолчанию; для отладки раскомментировать строку ниже
+  // el.style.display = 'block';
   el.textContent += msg + '\n';
   el.scrollTop = el.scrollHeight;
+  console.log('[debug]', msg);
 }
 
 async function runInPage(tabId, func, args = [], world) {
@@ -774,9 +776,13 @@ async function processCurrentTab(tab) {
     debugLog('Источник: ' + sourceDetection.key);
     currentSourceConfig = sourceDetection.config;
 
+    const downloadBtn = document.getElementById('download-btn');
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = '⏳ Подготовка...';
+
     let extra = null;
     if (currentSourceConfig.needsPageScan) {
-      document.getElementById('url-display').textContent = 'Сканирование страницы...';
+      document.getElementById('url-display').textContent = '⏳ Сканирование страницы...';
       extra = await currentSourceConfig.scanPage(tab);
       debugLog('scanPage результат: ' + (extra ? JSON.stringify(extra).substring(0, 120) : 'null'));
       if (!extra) {
@@ -795,36 +801,20 @@ async function processCurrentTab(tab) {
     }
 
     document.getElementById('extracted-text').innerHTML = result.displayText;
+    document.getElementById('url-display').textContent = result.downloadUrl;
 
-    const urlDisplay = document.getElementById('url-display');
-    urlDisplay.textContent = result.downloadUrl;
-
-    const copyBtn = document.getElementById('copy-btn');
-    copyBtn.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(result.downloadUrl);
-
-        const status = document.getElementById('status');
-        status.textContent = '✓ URL скопирован в буфер обмена!';
-        status.classList.remove('error', 'info');
-        status.classList.add('success');
-
-        setTimeout(() => {
-          status.classList.remove('success');
-        }, 2000);
-      } catch (err) {
-        console.error('Ошибка при копировании:', err);
-      }
-    };
-
-    const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = false;
+    downloadBtn.textContent = '⬇️ Скачать документ';
     downloadBtn.onclick = async () => {
+      downloadBtn.disabled = true;
+      downloadBtn.textContent = '⏳ Загрузка...';
       if (currentSourceConfig.directDownload) {
         await downloadDirect(result.downloadUrl, result.filename, tab.id);
       } else {
         await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
       }
+      downloadBtn.disabled = false;
+      downloadBtn.textContent = '⬇️ Скачать документ';
     };
 
     // Проверяем, есть ли на странице серия снимков (FamilySearch)

@@ -129,25 +129,18 @@
       font-weight: 500;
     }
     
-    #copy-btn {
-      background-color: var(--theme-accent);
-    }
-    
-    #copy-btn:hover {
-      filter: brightness(1.1);
-    }
-    
     #download-btn {
       background-color: var(--theme-accent);
     }
-    
-    #download-btn:hover {
+
+    #download-btn:hover:not(:disabled) {
       filter: brightness(1.1);
     }
-    
+
     #download-btn:disabled {
-      background-color: #ccc;
+      background-color: #bbb;
       cursor: not-allowed;
+      opacity: 0.8;
     }
 
     #download-series-btn {
@@ -247,14 +240,14 @@
     </div>
     
     <div class="button-group">
-      <button id="copy-btn">📋 Скопировать</button>
-      <button id="download-btn">⬇️ Скачать документ</button>
+      <button id="download-btn" disabled>⏳ Подготовка...</button>
     </div>
 
     <button id="download-series-btn" style="display: none;">📦 Скачать серию</button>
 
     <div class="status" id="status"></div>
 
+    <!-- debug-log скрыт; раскомментировать display:none для отладки -->
     <div id="debug-log" style="margin-top:10px;padding:8px;background:#f0f0f0;border:1px solid #ccc;border-radius:4px;font-family:monospace;font-size:11px;color:#333;white-space:pre-wrap;display:none;max-height:200px;overflow-y:auto;"></div>
 
     <div class="footer">
