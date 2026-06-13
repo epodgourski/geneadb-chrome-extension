@@ -485,29 +485,54 @@ function requestDownload(resultUrl, filename, needsAuth = true) {
   });
 }
 
-// Прямая загрузка через chrome.downloads (браузер сам подложит cookies)
-async function downloadDirect(resultUrl, filename) {
+// Прямая загрузка: fetch в контексте страницы (cookies ya.ru), затем chrome.downloads
+async function downloadDirect(resultUrl, filename, tabId) {
   const status = document.getElementById('status');
   status.textContent = '⏳ Загрузка документа...';
   status.classList.remove('success', 'error');
   status.classList.add('info');
 
-  console.log('Прямая загрузка через chrome.downloads:', resultUrl);
-  debugLog('downloadDirect: ' + resultUrl);
+  console.log('Загрузка через fetch в контексте страницы:', resultUrl);
+  debugLog('downloadDirect: fetch в контексте страницы...');
+
+  const dataUrl = await runInPage(tabId, async (url) => {
+    try {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) return { error: 'HTTP ' + response.status };
+      const blob = await response.blob();
+      return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ dataUrl: reader.result, size: blob.size });
+        reader.onerror = () => resolve({ error: 'FileReader error' });
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      return { error: e.message };
+    }
+  }, [resultUrl], 'MAIN');
+
+  if (!dataUrl || dataUrl.error) {
+    const errMsg = dataUrl ? dataUrl.error : 'Скрипт не выполнился';
+    debugLog('Ошибка fetch: ' + errMsg);
+    status.textContent = `✗ Ошибка: ${errMsg}`;
+    status.classList.remove('info', 'success');
+    status.classList.add('error');
+    return;
+  }
+
+  debugLog('Получен blob: ' + (dataUrl.size / 1024 / 1024).toFixed(1) + ' MB');
 
   chrome.downloads.download(
-    { url: resultUrl, filename: `${filename}.jpeg`, saveAs: false },
+    { url: dataUrl.dataUrl, filename: `${filename}.jpeg`, saveAs: false },
     (downloadId) => {
       const err = chrome.runtime.lastError;
       if (err) {
-        console.error('chrome.downloads ошибка:', err.message);
         debugLog('Ошибка downloads: ' + err.message);
         status.textContent = `✗ Ошибка: ${err.message}`;
         status.classList.remove('info', 'success');
         status.classList.add('error');
       } else {
-        console.log('Загрузка начата, ID:', downloadId);
-        debugLog('Загрузка начата, ID: ' + downloadId);
+        debugLog('Скачан, ID: ' + downloadId);
         status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
         status.classList.remove('info', 'error');
         status.classList.add('success');
@@ -770,7 +795,7 @@ async function processCurrentTab(tab) {
     downloadBtn.disabled = false;
     downloadBtn.onclick = async () => {
       if (currentSourceConfig.directDownload) {
-        await downloadDirect(result.downloadUrl, result.filename);
+        await downloadDirect(result.downloadUrl, result.filename, tab.id);
       } else {
         await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
       }
