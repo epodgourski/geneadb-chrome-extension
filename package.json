@@ -1,0 +1,21 @@
+{
+  "name": "geneadb-chrome-extension",
+  "version": "1.0.0",
+  "description": "**Версия:** 2026.06.13.01   **Продукт:** Генеалогический портал [geneadb.com](https://geneadb.com)",
+  "main": "background.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:unit": "npx playwright test --project=unit",
+    "test:e2e": "npx playwright test --project=extension"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:45875/git/epodgourski/geneadb-chrome-extension"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}
