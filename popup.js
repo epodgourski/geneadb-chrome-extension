@@ -332,7 +332,12 @@ const sources = {
         const buildId = nextData.buildId;
         const parentId = location.pathname.match(/\/catalog\/([a-f0-9-]{36})/)?.[1];
         const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1];
-        if (!buildId || !parentId || !pageNum) return { error: 'buildId/parentId/pageNum не найдены' };
+        if (!buildId || !parentId || !pageNum) {
+          return { error: 'Не найдены: buildId=' + (buildId || 'null') +
+            ' parentId=' + (parentId || 'null') +
+            ' pageNum=' + (pageNum || 'null') +
+            ' pathname=' + location.pathname };
+        }
 
         const resp = await fetch(
           `https://ya.ru/archive/_next/data/${buildId}/catalog/${parentId}/${pageNum}.json?parentNodeId=${parentId}`,
