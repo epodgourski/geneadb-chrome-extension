@@ -326,10 +326,8 @@ const sources = {
       debugLog('Запуск scanPage для Яндекс...');
 
       const meta = await runInPage(tab.id, () => {
-        const scriptEl = document.getElementById('__NEXT_DATA__');
-        if (!scriptEl) return { error: '#__NEXT_DATA__ не найден' };
-        let nextData;
-        try { nextData = JSON.parse(scriptEl.textContent); } catch (e) { return { error: 'JSON: ' + e.message }; }
+        const nextData = window.__NEXT_DATA__;
+        if (!nextData) return { error: '__NEXT_DATA__ не найден' };
 
         const node = nextData?.props?.pageProps?.currentNode;
         if (!node) return { error: 'currentNode не найден' };
@@ -343,7 +341,7 @@ const sources = {
         const entry = entries.find(e => e.name.includes(pattern));
 
         return { pageNum, filename, currentId, imageUrl: entry ? entry.name : null };
-      });
+      }, [], 'MAIN');
 
       if (!meta || meta.error) {
         debugLog(meta ? 'Ошибка: ' + meta.error : 'runInPage вернул null');
