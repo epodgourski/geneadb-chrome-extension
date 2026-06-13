@@ -333,15 +333,15 @@ const sources = {
         const node = nextData?.props?.pageProps?.currentNode;
         if (!node) return { error: 'currentNode не найден' };
 
+        const currentId = node.thumbNodeId || node.id;
         const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
         const filename = node.namepath ? node.namepath.split('/').pop() : '';
 
+        const pattern = '/archive/api/image?id=' + currentId + '&type=original';
         const entries = performance.getEntriesByType('resource');
-        const entry = entries.find(e =>
-          e.name.includes('/archive/api/image') && e.name.includes('type=original')
-        );
+        const entry = entries.find(e => e.name.includes(pattern));
 
-        return { pageNum, filename, imageUrl: entry ? entry.name : null };
+        return { pageNum, filename, currentId, imageUrl: entry ? entry.name : null };
       });
 
       if (!meta || meta.error) {
@@ -349,6 +349,7 @@ const sources = {
         return null;
       }
 
+      debugLog('currentId: ' + meta.currentId);
       debugLog('pageNum: ' + meta.pageNum);
       debugLog('filename: ' + meta.filename);
 
@@ -358,10 +359,12 @@ const sources = {
         return meta;
       }
 
-      debugLog('Оригинал не загружен — делаем zoom...');
+      debugLog('Оригинал id=' + meta.currentId + ' не загружен — делаем zoom...');
       console.log('[Яндекс] Оригинал не найден в entries, запускаем zoom');
 
-      const imageUrl = await runInPage(tab.id, async () => {
+      const imageUrl = await runInPage(tab.id, async (currentId) => {
+        const pattern = '/archive/api/image?id=' + currentId + '&type=original';
+
         const header = document.querySelector('[class*="ViewerHeader"]');
         const btns = header?.querySelectorAll('button, [role="button"]');
         if (!btns || btns.length < 3) {
@@ -379,9 +382,7 @@ const sources = {
         const deadline = Date.now() + 15000;
         while (Date.now() < deadline) {
           const entries = performance.getEntriesByType('resource');
-          const entry = entries.find(e =>
-            e.name.includes('/archive/api/image') && e.name.includes('type=original')
-          );
+          const entry = entries.find(e => e.name.includes(pattern));
           if (entry) {
             console.log('[Яндекс] Оригинал загружен:', entry.name);
             return entry.name;
@@ -390,7 +391,7 @@ const sources = {
         }
         console.log('[Яндекс] Таймаут: оригинал не загружен за 15 сек');
         return null;
-      }, [], 'MAIN');
+      }, [meta.currentId], 'MAIN');
 
       if (imageUrl) {
         debugLog('Оригинал получен после zoom: ' + imageUrl);
