@@ -88,6 +88,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // async
   }
 
+  if (request.action === 'downloadDirect') {
+    chrome.downloads.download(
+      { url: request.url, filename: `${request.filename}.jpeg`, saveAs: false },
+      (downloadId) => {
+        if (downloadId) {
+          console.log('Service Worker: Прямая загрузка, ID:', downloadId);
+          sendResponse({ success: true, downloadId });
+        } else {
+          sendResponse({ success: false, error: 'Не удалось запустить загрузку' });
+        }
+      }
+    );
+    return true;
+  }
+
   if (request.action === 'startSeries') {
     getSeries().then((s) => {
       if (s && s.running) {

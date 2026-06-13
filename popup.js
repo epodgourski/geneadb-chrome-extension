@@ -316,8 +316,9 @@ const sources = {
 
   yandex: {
     name: 'Яндекс Архивы',
-    needsAuth: true,
+    needsAuth: false,
     needsPageScan: true,
+    directDownload: true,
 
     detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
 
@@ -482,6 +483,41 @@ function requestDownload(resultUrl, filename, needsAuth = true) {
       }
     );
   });
+}
+
+// Прямая загрузка через chrome.downloads (браузер сам подложит cookies)
+async function downloadDirect(resultUrl, filename) {
+  try {
+    const status = document.getElementById('status');
+    status.textContent = '⏳ Загрузка документа...';
+    status.classList.remove('success', 'error');
+    status.classList.add('info');
+
+    console.log('Прямая загрузка через chrome.downloads:', resultUrl);
+
+    await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: 'downloadDirect', url: resultUrl, filename: filename },
+        (result) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else if (result && result.success) resolve(result);
+          else reject(new Error(result ? result.error : 'Неизвестная ошибка'));
+        }
+      );
+    });
+
+    status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
+    status.classList.remove('info', 'error');
+    status.classList.add('success');
+    setTimeout(() => { status.classList.remove('success'); }, 3000);
+
+  } catch (error) {
+    console.error('Ошибка при загрузке:', error);
+    const status = document.getElementById('status');
+    status.textContent = `✗ Ошибка: ${error.message}`;
+    status.classList.remove('info', 'success');
+    status.classList.add('error');
+  }
 }
 
 // Функция для загрузки одного файла через Service Worker (с индикацией в UI)
@@ -736,7 +772,11 @@ async function processCurrentTab(tab) {
     const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = false;
     downloadBtn.onclick = async () => {
-      await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
+      if (currentSourceConfig.directDownload) {
+        await downloadDirect(result.downloadUrl, result.filename);
+      } else {
+        await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
+      }
     };
 
     // Проверяем, есть ли на странице серия снимков (FamilySearch)
