@@ -1,3 +1,7 @@
+import { detectSource, parseUrl } from './sources/index.js';
+import { psSeriesInfo } from './sources/familysearch.js';
+import { debugLog, runInPage } from './utils.js';
+
 // ============================================
 // СИСТЕМА ТЕМ
 // ============================================
@@ -77,32 +81,27 @@ const themeDefinitions = {
   }
 };
 
-// Получить текущую тему (по умолчанию theme-4 - Винтаж зелень)
 function getCurrentTheme() {
   const saved = localStorage.getItem('geneadb-theme');
-  return saved || 'theme-4';
+  return saved || 'theme-1';
 }
 
-// Применить тему
 function applyTheme(themeId) {
   const theme = themeDefinitions[themeId];
   if (!theme) return;
-  
+
   localStorage.setItem('geneadb-theme', themeId);
-  
-  // Обновляем CSS переменные
+
   const root = document.documentElement;
   Object.entries(theme.colors).forEach(([key, value]) => {
     root.style.setProperty(`--theme-${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`, value);
   });
-  
-  // Обновляем заголовок
+
   const header = document.querySelector('.header');
   if (header) {
     header.style.background = `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.primaryDark} 100%)`;
   }
-  
-  // Обновляем блоки
+
   document.querySelectorAll('#extracted-text').forEach(box => {
     box.style.background = theme.colors.light;
     box.style.borderColor = theme.colors.accent;
@@ -114,39 +113,25 @@ function applyTheme(themeId) {
     box.style.borderColor = theme.colors.border;
     box.style.color = theme.colors.text;
   });
-  
-  // Обновляем кнопки
-  document.querySelectorAll('#copy-btn, #download-btn').forEach(btn => {
+
+  document.querySelectorAll('#download-btn, #download-series-btn').forEach(btn => {
     btn.style.backgroundColor = theme.colors.accent;
     btn.style.borderColor = theme.colors.accent;
   });
 
-  // Обновляем метки
   document.querySelectorAll('.label').forEach(label => {
     label.style.color = theme.colors.primary;
   });
-  
-  // Обновляем кнопки в меню тем
+
   updateThemeMenu(themeId);
 }
 
-// Осветлить цвет
-function lightenColor(color, percent) {
-  const num = parseInt(color.replace('#', ''), 16);
-  const amt = Math.round(2.55 * percent);
-  const R = Math.min(255, (num >> 16) + amt);
-  const G = Math.min(255, (num >> 8 & 0x00FF) + amt);
-  const B = Math.min(255, (num & 0x0000FF) + amt);
-  return `#${(0x1000000 + (R << 16) + (G << 8) + B).toString(16).slice(1)}`;
-}
-
-// Обновить меню выбора тем
 function updateThemeMenu(currentTheme) {
   const themeButtons = document.getElementById('theme-buttons');
   if (!themeButtons) return;
-  
+
   themeButtons.innerHTML = '';
-  
+
   Object.entries(themeDefinitions).forEach(([themeId, themeDef]) => {
     const btn = document.createElement('button');
     btn.textContent = themeDef.name;
@@ -164,246 +149,160 @@ function updateThemeMenu(currentTheme) {
       margin: 0 !important;
       text-align: left !important;
     `;
-    
+
     if (themeId === currentTheme) {
       btn.style.background = `${themeDef.colors.accent} !important`;
       btn.style.color = 'white !important';
       btn.style.borderColor = `${themeDef.colors.accent} !important`;
       btn.style.fontWeight = '500 !important';
     }
-    
+
     btn.addEventListener('click', () => {
       applyTheme(themeId);
       document.getElementById('theme-menu').classList.remove('active');
     });
-    
+
     btn.addEventListener('mouseenter', () => {
       if (themeId !== currentTheme) {
         btn.style.background = `${themeDef.colors.light} !important`;
       }
     });
-    
+
     btn.addEventListener('mouseleave', () => {
       if (themeId !== currentTheme) {
         btn.style.background = `${themeDef.colors.lightBg} !important`;
       }
     });
-    
+
     themeButtons.appendChild(btn);
   });
 }
 
-// Инициализировать меню тем
 function initThemeMenu() {
   const toggleBtn = document.getElementById('theme-toggle-btn');
   const themeMenu = document.getElementById('theme-menu');
-  
+
   if (!toggleBtn || !themeMenu) return;
-  
+
   toggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     themeMenu.classList.toggle('active');
   });
-  
-  // Закрываем меню при клике вне его
+
   document.addEventListener('click', (e) => {
     if (!themeMenu.contains(e.target) && e.target !== toggleBtn) {
       themeMenu.classList.remove('active');
     }
   });
-  
-  // Закрываем меню при скролле
+
   document.addEventListener('scroll', () => {
     themeMenu.classList.remove('active');
   });
 }
 
 // ============================================
-// КОНФИГУРАЦИЯ ИСТОЧНИКОВ
+// ЗАГРУЗКА ФАЙЛОВ
 // ============================================
-
-const sources = {
-  familysearch: {
-    name: 'FamilySearch',
-    needsAuth: true,
-    
-    detect: (url) => url.includes('familysearch.org'),
-    
-    parse: (url) => {
-      const protocolEnd = url.indexOf('://');
-      if (protocolEnd === -1) return null;
-      
-      const firstSlashAfterProtocol = url.indexOf('/', protocolEnd + 3);
-      if (firstSlashAfterProtocol === -1) return null;
-      
-      const pathAndQuery = url.substring(firstSlashAfterProtocol);
-      const questionIndex = pathAndQuery.indexOf('?');
-      const searchArea = questionIndex === -1 ? pathAndQuery : pathAndQuery.substring(0, questionIndex);
-      const colonIndex = searchArea.lastIndexOf(':');
-      
-      if (colonIndex === -1) return null;
-      
-      if (questionIndex === -1) {
-        return { code: searchArea.substring(colonIndex + 1) };
-      }
-      
-      return { code: pathAndQuery.substring(colonIndex + 1, questionIndex) };
-    },
-    
-    generateUrl: (parsed) => {
-      if (!parsed.code) return null;
-      const template = 'https://sg30p0.familysearch.org/service/records/storage/deepzoomcloud/dz/v1/3:1:***/$dist';
-      return template.replace('***', parsed.code);
-    },
-    
-    getFilename: (parsed) => parsed.code,
-    
-    displayText: (parsed) => `Код: ${parsed.code}`
-  },
-
-  rusneb: {
-    name: 'RusNEB',
-    needsAuth: false,
-
-    detect: (url) => url.includes('viewer.rusneb.ru'),
-
-    parse: (url) => {
-      const questionIndex = url.indexOf('?');
-      let searchUrl = questionIndex === -1 ? url : url.substring(0, questionIndex);
-
-      const lastSlashIndex = searchUrl.lastIndexOf('/');
-      if (lastSlashIndex === -1) return null;
-
-      const code = searchUrl.substring(lastSlashIndex + 1);
-
-      const params = new URLSearchParams(questionIndex === -1 ? '' : url.substring(questionIndex));
-      const page = params.get('page') || '1';
-
-      return { code, page };
-    },
-
-    generateUrl: (parsed) => {
-      if (!parsed.code || !parsed.page) return null;
-      return `https://viewer.rusneb.ru/api/v1/document/${parsed.code}/page/${parsed.page}`;
-    },
-
-    getFilename: (parsed) => {
-      const paddedPage = String(parsed.page).padStart(4, '0');
-      return `${parsed.code}_${paddedPage}`;
-    },
-
-    displayText: (parsed) => `Код: ${parsed.code}<br/>Страница: ${parsed.page}`
-  },
-
-  yandex: {
-    name: 'Яндекс Архивы',
-    needsAuth: false,
-    needsPageScan: true,
-
-    detect: (url) => /ya\.ru\/archive\/catalog\/[^/]+\/\d+/.test(url),
-
-    scanPage: async (url) => {
-      const response = await fetch(url);
-      const html = await response.text();
-      const pathMatch = html.match(/"thumb":\{"path":"([^"]+)"/);
-      if (!pathMatch) return null;
-      const path = pathMatch[1].replace(/\\u0026/g, '&');
-      const idMatch = path.match(/[?&]id=([a-f0-9-]+)/);
-      return idMatch ? { imageId: idMatch[1] } : null;
-    },
-
-    parse: (url, extra) => {
-      const cleanUrl = url.split('?')[0];
-      const match = cleanUrl.match(/ya\.ru\/archive\/catalog\/[^/]+\/(\d+)/);
-      if (!match) return null;
-      const page = match[1];
-      if (!extra || !extra.imageId) return null;
-      return { page, imageId: extra.imageId };
-    },
-
-    generateUrl: (parsed) => {
-      if (!parsed.imageId) return null;
-      return `https://ya.ru/archive/api/image?id=${parsed.imageId}&type=original`;
-    },
-
-    getFilename: (parsed) => `f${String(parsed.page).padStart(4, '0')}`,
-
-    displayText: (parsed) => `Страница: ${parsed.page}<br/>ID: ${parsed.imageId}`
-  }
-};
-
-// Функция для определения источника по URL
-function detectSource(url) {
-  for (const [key, config] of Object.entries(sources)) {
-    if (config.detect(url)) {
-      return { key, config };
-    }
-  }
-  return null;
-}
-
-// Функция для парсинга URL (использует конфиг источника)
-function parseUrl(url, sourceConfig, extra = null) {
-  try {
-    const parsed = sourceConfig.parse(url, extra);
-    if (!parsed) return null;
-
-    const downloadUrl = sourceConfig.generateUrl(parsed);
-    if (!downloadUrl) return null;
-
-    return {
-      parsed: parsed,
-      downloadUrl: downloadUrl,
-      needsAuth: sourceConfig.needsAuth,
-      displayText: sourceConfig.displayText(parsed),
-      filename: sourceConfig.getFilename(parsed)
-    };
-  } catch (error) {
-    console.error('Ошибка при парсинге:', error);
-    return null;
-  }
-}
 
 let currentSourceConfig = null;
 
-// Функция для загрузки файла через Service Worker
+function requestDownload(resultUrl, filename, needsAuth = true) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        action: 'downloadImage',
+        url: resultUrl,
+        filename: filename,
+        needsAuth: needsAuth
+      },
+      (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (result && result.success) {
+          resolve(result);
+        } else {
+          reject(new Error(result ? result.error : 'Неизвестная ошибка'));
+        }
+      }
+    );
+  });
+}
+
+async function downloadDirect(resultUrl, filename, tabId) {
+  const status = document.getElementById('status');
+  status.textContent = '⏳ Загрузка документа...';
+  status.classList.remove('success', 'error');
+  status.classList.add('info');
+
+  console.log('Загрузка через fetch в контексте страницы:', resultUrl);
+  debugLog('downloadDirect: fetch в контексте страницы...');
+
+  const dataUrl = await runInPage(tabId, async (url) => {
+    try {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) return { error: 'HTTP ' + response.status };
+      const blob = await response.blob();
+      return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ dataUrl: reader.result, size: blob.size });
+        reader.onerror = () => resolve({ error: 'FileReader error' });
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      return { error: e.message };
+    }
+  }, [resultUrl], 'MAIN');
+
+  if (!dataUrl || dataUrl.error) {
+    const errMsg = dataUrl ? dataUrl.error : 'Скрипт не выполнился';
+    debugLog('Ошибка fetch: ' + errMsg);
+    status.textContent = `✗ Ошибка: ${errMsg}`;
+    status.classList.remove('info', 'success');
+    status.classList.add('error');
+    return;
+  }
+
+  debugLog('Получен blob: ' + (dataUrl.size / 1024 / 1024).toFixed(1) + ' MB');
+
+  chrome.downloads.download(
+    { url: dataUrl.dataUrl, filename: `${filename}.jpeg`, saveAs: false },
+    (downloadId) => {
+      const err = chrome.runtime.lastError;
+      if (err) {
+        debugLog('Ошибка downloads: ' + err.message);
+        status.textContent = `✗ Ошибка: ${err.message}`;
+        status.classList.remove('info', 'success');
+        status.classList.add('error');
+      } else {
+        debugLog('Скачан, ID: ' + downloadId);
+        status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
+        status.classList.remove('info', 'error');
+        status.classList.add('success');
+        setTimeout(() => { status.classList.remove('success'); }, 3000);
+      }
+    }
+  );
+}
+
 async function downloadImage(resultUrl, filename, needsAuth = true) {
   try {
     const status = document.getElementById('status');
     status.textContent = '⏳ Загрузка документа...';
     status.classList.remove('success', 'error');
     status.classList.add('info');
-    
+
     console.log('Отправляем запрос на загрузку в Service Worker:', resultUrl);
-    
-    await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { 
-          action: 'downloadImage', 
-          url: resultUrl, 
-          filename: filename,
-          needsAuth: needsAuth
-        },
-        (result) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else if (result.success) {
-            resolve(result);
-          } else {
-            reject(new Error(result.error));
-          }
-        }
-      );
-    });
-    
+
+    await requestDownload(resultUrl, filename, needsAuth);
+
     status.textContent = `✓ Документ скачан! (${filename}.jpeg)`;
     status.classList.remove('info', 'error');
     status.classList.add('success');
-    
+
     setTimeout(() => {
       status.classList.remove('success');
     }, 3000);
-    
+
   } catch (error) {
     console.error('Ошибка при загрузке:', error);
     const status = document.getElementById('status');
@@ -413,23 +312,136 @@ async function downloadImage(resultUrl, filename, needsAuth = true) {
   }
 }
 
-// Функция обработки текущей вкладки
+// ============================================
+// ПАКЕТНОЕ СКАЧИВАНИЕ СЕРИИ (FamilySearch)
+// ============================================
+
+let seriesTotalForLabel = 0;
+
+function sendToBackground(message) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (resp) => {
+      if (chrome.runtime.lastError) resolve(null);
+      else resolve(resp);
+    });
+  });
+}
+
+function updateSeriesUI(state) {
+  const btn = document.getElementById('download-series-btn');
+  const status = document.getElementById('status');
+  if (!btn || !state) return;
+
+  if (state.running) {
+    btn.style.display = '';
+    btn.textContent = '⏳ ' + (state.message || 'Скачивание серии...');
+    return;
+  }
+
+  btn.textContent = seriesTotalForLabel
+    ? `📦 Скачать серию (${seriesTotalForLabel})`
+    : '📦 Скачать серию';
+
+  if (state.phase && state.message) {
+    if (state.phase === 'done') {
+      status.textContent = '✓ ' + state.message;
+      status.className = 'status success';
+      setTimeout(() => {
+        status.className = 'status';
+      }, 4000);
+    } else if (state.phase === 'error') {
+      status.textContent = '✗ ' + state.message;
+      status.className = 'status error';
+    } else if (state.phase === 'cancelled') {
+      status.textContent = '⏹ ' + state.message;
+      status.className = 'status info';
+    } else {
+      status.textContent = '⚠ ' + state.message;
+      status.className = 'status info';
+    }
+  }
+}
+
+async function onSeriesButtonClick(tabId) {
+  const state = await sendToBackground({ action: 'getSeriesState' });
+  if (state && state.running) {
+    document.getElementById('download-series-btn').textContent = '⏹ Остановка...';
+    await sendToBackground({ action: 'cancelSeries' });
+    return;
+  }
+  const res = await sendToBackground({ action: 'startSeries', tabId });
+  if (res && res.ok === false) {
+    const status = document.getElementById('status');
+    status.textContent = '✗ ' + (res.error || 'Не удалось запустить скачивание серии');
+    status.className = 'status error';
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.action === 'seriesProgress') {
+    updateSeriesUI(msg.state);
+  }
+});
+
+async function setupSeriesButton(tab, sourceKey) {
+  const btn = document.getElementById('download-series-btn');
+  btn.style.display = 'none';
+
+  if (sourceKey === 'familysearch' && tab.id) {
+    try {
+      const info = await runInPage(tab.id, psSeriesInfo);
+      if (info && info.hasSeries) {
+        seriesTotalForLabel = info.total || 0;
+        btn.style.display = '';
+        btn.textContent = info.total ? `📦 Скачать серию (${info.total})` : '📦 Скачать серию';
+        btn.onclick = () => onSeriesButtonClick(tab.id);
+      }
+    } catch (error) {
+      console.warn('Серия не обнаружена или нет доступа к странице:', error);
+    }
+  }
+
+  try {
+    const state = await sendToBackground({ action: 'getSeriesState' });
+    if (state && state.running) {
+      if (!seriesTotalForLabel && state.total) seriesTotalForLabel = state.total;
+      btn.style.display = '';
+      if (!btn.onclick) btn.onclick = () => onSeriesButtonClick(tab.id);
+      updateSeriesUI(state);
+    }
+  } catch (error) {
+    /* фон недоступен — игнорируем */
+  }
+}
+
+// ============================================
+// ОБРАБОТКА ТЕКУЩЕЙ ВКЛАДКИ
+// ============================================
+
 async function processCurrentTab(tab) {
   try {
+    debugLog('URL: ' + tab.url);
     const sourceDetection = detectSource(tab.url);
 
     if (!sourceDetection) {
+      debugLog('Источник не определён');
       document.getElementById('url-display').textContent = 'Ошибка: эта страница не поддерживается. Откройте URL с поддерживаемого источника';
       document.getElementById('download-btn').disabled = true;
       return;
     }
 
+    debugLog('Источник: ' + sourceDetection.key);
     currentSourceConfig = sourceDetection.config;
+
+    const downloadBtn = document.getElementById('download-btn');
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = '⏳ Подготовка...';
 
     let extra = null;
     if (currentSourceConfig.needsPageScan) {
-      document.getElementById('url-display').textContent = 'Сканирование страницы...';
-      extra = await currentSourceConfig.scanPage(tab.url);
+      document.getElementById('url-display').textContent = '⏳ Сканирование страницы...';
+      extra = await currentSourceConfig.scanPage(tab);
+      debugLog('scanPage результат: ' + (extra ? JSON.stringify(extra).substring(0, 120) : 'null'));
       if (!extra) {
         document.getElementById('url-display').textContent = 'Ошибка: не удалось найти изображение на странице';
         document.getElementById('download-btn').disabled = true;
@@ -446,33 +458,23 @@ async function processCurrentTab(tab) {
     }
 
     document.getElementById('extracted-text').innerHTML = result.displayText;
+    document.getElementById('url-display').textContent = result.downloadUrl;
 
-    const urlDisplay = document.getElementById('url-display');
-    urlDisplay.textContent = result.downloadUrl;
-
-    const copyBtn = document.getElementById('copy-btn');
-    copyBtn.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(result.downloadUrl);
-
-        const status = document.getElementById('status');
-        status.textContent = '✓ URL скопирован в буфер обмена!';
-        status.classList.remove('error', 'info');
-        status.classList.add('success');
-
-        setTimeout(() => {
-          status.classList.remove('success');
-        }, 2000);
-      } catch (err) {
-        console.error('Ошибка при копировании:', err);
-      }
-    };
-
-    const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = false;
+    downloadBtn.textContent = '⬇️ Скачать документ';
     downloadBtn.onclick = async () => {
-      await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
+      downloadBtn.disabled = true;
+      downloadBtn.textContent = '⏳ Загрузка...';
+      if (currentSourceConfig.directDownload) {
+        await downloadDirect(result.downloadUrl, result.filename, tab.id);
+      } else {
+        await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
+      }
+      downloadBtn.disabled = false;
+      downloadBtn.textContent = '⬇️ Скачать документ';
     };
+
+    await setupSeriesButton(tab, sourceDetection.key);
 
   } catch (error) {
     console.error('Ошибка:', error);
@@ -481,7 +483,10 @@ async function processCurrentTab(tab) {
   }
 }
 
-// Обработчик загрузки popup
+// ============================================
+// ИНИЦИАЛИЗАЦИЯ
+// ============================================
+
 document.addEventListener('DOMContentLoaded', () => {
   const currentTheme = getCurrentTheme();
   applyTheme(currentTheme);
