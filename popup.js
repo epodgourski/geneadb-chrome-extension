@@ -325,47 +325,23 @@ const sources = {
     scanPage: async (tab) => {
       debugLog('Запуск scanPage для Яндекс...');
 
-      // Шаг 1: получаем актуальные параметры из next.router (обновляется при SPA-навигации)
-      const params = await runInPage(tab.id, () => {
-        const buildId = window.__NEXT_DATA__?.buildId;
-        const router = window.next?.router;
-        const parentId = router?.query?.parentNodeId;
-        const pageNum = router?.query?.docNumber;
-        return { buildId, parentId, pageNum };
+      const meta = await runInPage(tab.id, () => {
+        const nextData = window.__NEXT_DATA__;
+        if (!nextData) return { error: '__NEXT_DATA__ не найден' };
+
+        const node = nextData?.props?.pageProps?.currentNode;
+        if (!node) return { error: 'currentNode не найден' };
+
+        const currentId = node.thumbNodeId || node.id;
+        const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
+        const filename = node.namepath ? node.namepath.split('/').pop() : '';
+
+        const pattern = '/archive/api/image?id=' + currentId + '&type=original';
+        const entries = performance.getEntriesByType('resource');
+        const entry = entries.find(e => e.name.includes(pattern));
+
+        return { pageNum, filename, currentId, imageUrl: entry ? entry.name : null };
       }, [], 'MAIN');
-
-      if (!params) { debugLog('runInPage вернул null'); return null; }
-      debugLog('router: parentId=' + params.parentId + ' pageNum=' + params.pageNum + ' buildId=' + (params.buildId ? params.buildId.substring(0, 8) + '...' : 'null'));
-
-      if (!params.buildId || !params.parentId || !params.pageNum) {
-        debugLog('Не хватает параметров');
-        return null;
-      }
-
-      // Шаг 2: получаем актуальный currentNode через Next.js data API
-      const meta = await runInPage(tab.id, async (buildId, parentId, pageNum) => {
-        try {
-          const resp = await fetch(
-            '/archive/_next/data/' + buildId + '/catalog/' + parentId + '/' + pageNum + '.json?parentNodeId=' + parentId,
-            { credentials: 'include' }
-          );
-          if (!resp.ok) return { error: 'data API HTTP ' + resp.status };
-          const data = await resp.json();
-          const node = data?.pageProps?.currentNode;
-          if (!node) return { error: 'currentNode не найден в ответе' };
-
-          const currentId = node.thumbNodeId || node.id;
-          const filename = node.namepath ? node.namepath.split('/').pop() : '';
-
-          const pattern = '/archive/api/image?id=' + currentId + '&type=original';
-          const entries = performance.getEntriesByType('resource');
-          const entry = entries.find(e => e.name.includes(pattern));
-
-          return { pageNum, filename, currentId, imageUrl: entry ? entry.name : null };
-        } catch (e) {
-          return { error: e.message };
-        }
-      }, [params.buildId, params.parentId, params.pageNum], 'MAIN');
 
       if (!meta || meta.error) {
         debugLog(meta ? 'Ошибка: ' + meta.error : 'runInPage вернул null');
