@@ -89,17 +89,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'downloadDirect') {
-    chrome.downloads.download(
-      { url: request.url, filename: `${request.filename}.jpeg`, saveAs: false },
-      (downloadId) => {
-        if (downloadId) {
-          console.log('Service Worker: Прямая загрузка, ID:', downloadId);
-          sendResponse({ success: true, downloadId });
-        } else {
-          sendResponse({ success: false, error: 'Не удалось запустить загрузку' });
+    console.log('Service Worker: downloadDirect, URL:', request.url, 'filename:', request.filename);
+    try {
+      chrome.downloads.download(
+        { url: request.url, filename: `${request.filename}.jpeg`, saveAs: false },
+        (downloadId) => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            console.error('Service Worker: Ошибка загрузки:', err.message);
+            sendResponse({ success: false, error: err.message });
+          } else if (downloadId) {
+            console.log('Service Worker: Прямая загрузка, ID:', downloadId);
+            sendResponse({ success: true, downloadId });
+          } else {
+            sendResponse({ success: false, error: 'Не удалось запустить загрузку' });
+          }
         }
-      }
-    );
+      );
+    } catch (e) {
+      console.error('Service Worker: downloadDirect exception:', e.message);
+      sendResponse({ success: false, error: e.message });
+    }
     return true;
   }
 
