@@ -325,31 +325,15 @@ const sources = {
     scanPage: async (tab) => {
       debugLog('Запуск scanPage для Яндекс...');
 
-      const meta = await runInPage(tab.id, async () => {
+      const meta = await runInPage(tab.id, () => {
         const nextData = window.__NEXT_DATA__;
         if (!nextData) return { error: '__NEXT_DATA__ не найден' };
 
-        const buildId = nextData.buildId;
-        const parentId = location.pathname.match(/\/catalog\/([a-f0-9-]{36})/)?.[1];
-        const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1];
-        if (!buildId || !parentId || !pageNum) {
-          return { error: 'Не найдены: buildId=' + (buildId || 'null') +
-            ' parentId=' + (parentId || 'null') +
-            ' pageNum=' + (pageNum || 'null') +
-            ' pathname=' + location.pathname };
-        }
-
-        const resp = await fetch(
-          `https://ya.ru/archive/_next/data/${buildId}/catalog/${parentId}/${pageNum}.json?parentNodeId=${parentId}`,
-          { credentials: 'include' }
-        );
-        if (!resp.ok) return { error: 'Next.js data API: HTTP ' + resp.status };
-        const pageData = await resp.json();
-
-        const node = pageData?.pageProps?.currentNode;
-        if (!node) return { error: 'currentNode не найден в ответе API' };
+        const node = nextData?.props?.pageProps?.currentNode;
+        if (!node) return { error: 'currentNode не найден' };
 
         const currentId = node.thumbNodeId || node.id;
+        const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
         const filename = node.namepath ? node.namepath.split('/').pop() : '';
 
         const pattern = '/archive/api/image?id=' + currentId + '&type=original';
