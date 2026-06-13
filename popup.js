@@ -336,7 +336,12 @@ const sources = {
         const pageNum = location.pathname.match(/\/(\d+)\/?$/)?.[1] || '';
         const filename = node.namepath ? node.namepath.split('/').pop() : '';
 
-        return { pageNum, filename };
+        const entries = performance.getEntriesByType('resource');
+        const entry = entries.find(e =>
+          e.name.includes('/archive/api/image') && e.name.includes('type=original')
+        );
+
+        return { pageNum, filename, imageUrl: entry ? entry.name : null };
       });
 
       if (!meta || meta.error) {
@@ -347,38 +352,54 @@ const sources = {
       debugLog('pageNum: ' + meta.pageNum);
       debugLog('filename: ' + meta.filename);
 
-      debugLog('Ищем URL оригинала в performance entries...');
+      if (meta.imageUrl) {
+        debugLog('Оригинал уже загружен: ' + meta.imageUrl);
+        console.log('[Яндекс] Оригинал уже загружен:', meta.imageUrl);
+        return meta;
+      }
+
+      debugLog('Оригинал не загружен — делаем zoom...');
+      console.log('[Яндекс] Оригинал не найден в entries, запускаем zoom');
+
       const imageUrl = await runInPage(tab.id, async () => {
-        function findOriginalUrl() {
-          const entries = performance.getEntriesByType('resource');
-          const entry = entries.find(e =>
-            e.name.includes('/archive/api/image') && e.name.includes('type=original')
-          );
-          return entry ? entry.name : null;
-        }
-
-        const existing = findOriginalUrl();
-        if (existing) return existing;
-
         const header = document.querySelector('[class*="ViewerHeader"]');
         const btns = header?.querySelectorAll('button, [role="button"]');
-        if (!btns || btns.length < 3) return null;
+        if (!btns || btns.length < 3) {
+          console.log('[Яндекс] Кнопки zoom не найдены');
+          return null;
+        }
+
+        console.log('[Яндекс] Кликаем zoom+ 8 раз...');
         for (let i = 0; i < 8; i++) {
           btns[2].click();
           await new Promise(r => setTimeout(r, 200));
         }
+        console.log('[Яндекс] Zoom выполнен, ожидаем загрузку оригинала...');
 
         const deadline = Date.now() + 15000;
         while (Date.now() < deadline) {
-          const found = findOriginalUrl();
-          if (found) return found;
+          const entries = performance.getEntriesByType('resource');
+          const entry = entries.find(e =>
+            e.name.includes('/archive/api/image') && e.name.includes('type=original')
+          );
+          if (entry) {
+            console.log('[Яндекс] Оригинал загружен:', entry.name);
+            return entry.name;
+          }
           await new Promise(r => setTimeout(r, 500));
         }
+        console.log('[Яндекс] Таймаут: оригинал не загружен за 15 сек');
         return null;
       }, [], 'MAIN');
 
-      debugLog('imageUrl: ' + (imageUrl || 'НЕ НАЙДЕН'));
-      if (!imageUrl) return null;
+      if (imageUrl) {
+        debugLog('Оригинал получен после zoom: ' + imageUrl);
+        console.log('[Яндекс] Итого URL:', imageUrl);
+      } else {
+        debugLog('Ошибка: оригинал не загружен за 15 сек');
+        console.log('[Яндекс] Ошибка: таймаут ожидания оригинала');
+        return null;
+      }
 
       return { pageNum: meta.pageNum, filename: meta.filename, imageUrl };
     },
