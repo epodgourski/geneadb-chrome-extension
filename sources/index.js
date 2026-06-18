@@ -13,6 +13,12 @@ export function detectSource(url) {
   return null;
 }
 
+function sanitizeFilename(name) {
+  return name
+    .replace(/[\\/:*?"<>|,]/g, '')
+    .trim();
+}
+
 export function parseUrl(url, sourceConfig, extra = null) {
   try {
     const parsed = sourceConfig.parse(url, extra);
@@ -26,7 +32,7 @@ export function parseUrl(url, sourceConfig, extra = null) {
       downloadUrl,
       needsAuth: sourceConfig.needsAuth,
       displayText: sourceConfig.displayText(parsed),
-      filename: sourceConfig.getFilename(parsed)
+      filename: sanitizeFilename(sourceConfig.getFilename(parsed))
     };
   } catch (error) {
     console.error('Ошибка при парсинге:', error);
