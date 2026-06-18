@@ -1,81 +1,108 @@
 # Документация: Добавление новых источников
 
-Расширение теперь модульное и легко расширяется для поддержки новых источников.
+Расширение использует модульную архитектуру — каждый источник определяется в отдельном ES-модуле в папке `sources/`.
 
 ## Архитектура
 
-Каждый источник определяется в объекте `sources` в файле `popup.js`.
+```
+sources/
+├── index.js              ← Реестр, detectSource(), parseUrl(), sanitizeFilename()
+├── familysearch.js       ← FamilySearch + серии
+├── rusneb.js             ← RusNEB
+└── yandex.js             ← Яндекс Архивы
+```
 
 ## Как добавить новый источник?
 
-### 1. Откройте `popup.js`
-
-### 2. Найдите объект `sources` в начале файла
-
-### 3. Добавьте новый источник (пример для гипотетического источника):
+### 1. Создайте файл `sources/mynewsource.js`
 
 ```javascript
-const sources = {
-  familysearch: { ... },
-  rusneb: { ... },
+export const mynewsource = {
+  name: 'My New Source',              // Название источника
+  needsAuth: true,                     // Требует ли аутентификацию (cookies)
   
-  // ← ВАША НОВЫЙ ИСТОЧНИК
-  mynewsource: {
-    name: 'My New Source',              // Название источника
-    needsAuth: true,                     // Требует ли аутентификацию (cookies)
-    
-    // Определяет, является ли URL этим источником
-    detect: (url) => url.includes('mynewsource.com'),
-    
-    // Парсит URL и извлекает нужные данные
-    // Возвращает объект с полученными данными
-    parse: (url) => {
-      // Ваша логика парсинга
-      // Например: { code: '12345', type: 'manuscript' }
-      return { code, type };
-    },
-    
-    // Генерирует URL для загрузки на основе распарсенных данных
-    generateUrl: (parsed) => {
-      // Ваша логика формирования URL
-      // Например: https://api.mynewsource.com/download/{code}
-      return downloadUrl;
-    },
-    
-    // Генерирует имя файла для сохранения
-    getFilename: (parsed) => {
-      // Ваша логика именования файлов
-      // Например: `${parsed.code}_${parsed.type}.jpeg`
-      return filename;
-    },
-    
-    // Форматирует строку для отображения извлеченных данных в UI
-    displayText: (parsed) => {
-      // Ваша логика форматирования для отображения
-      return `Код: ${parsed.code}<br/>Тип: ${parsed.type}`;
-    }
+  // Определяет, является ли URL этим источником
+  detect: (url) => url.includes('mynewsource.com'),
+  
+  // Парсит URL и извлекает нужные данные
+  // Возвращает объект с полученными данными
+  parse: (url) => {
+    // Ваша логика парсинга
+    // Например: { code: '12345', type: 'manuscript' }
+    return { code, type };
+  },
+  
+  // Генерирует URL для загрузки на основе распарсенных данных
+  generateUrl: (parsed) => {
+    return `https://api.mynewsource.com/download/${parsed.code}`;
+  },
+  
+  // Генерирует имя файла для сохранения
+  // Автоматически проходит через sanitizeFilename() —
+  // символы \ / : * ? " < > | , будут удалены
+  getFilename: (parsed) => {
+    return `${parsed.code}_${parsed.type}`;
+  },
+  
+  // Форматирует строку для отображения извлеченных данных в UI
+  displayText: (parsed) => {
+    return `Код: ${parsed.code}<br/>Тип: ${parsed.type}`;
   }
 };
 ```
 
+### 2. Зарегистрируйте в `sources/index.js`
+
+```javascript
+import { mynewsource } from './mynewsource.js';
+
+export const sources = { familysearch, rusneb, yandex, mynewsource };
+```
+
+### 3. Добавьте host_permissions в `manifest.json` (при необходимости)
+
+```json
+"host_permissions": [
+  "*://*.mynewsource.com/*"
+]
+```
+
+### 4. Готово!
+
 ## Параметры источника
+
+### Обязательные
 
 | Параметр | Тип | Описание |
 |----------|-----|---------|
 | `name` | string | Название источника для отображения |
-| `needsAuth` | boolean | `true` - использует cookies текущей сессии (как FamilySearch)<br/>`false` - публичный доступ без аутентификации (как RusNEB) |
+| `needsAuth` | boolean | `true` — использует cookies текущей сессии (как FamilySearch)<br/>`false` — публичный доступ без аутентификации (как RusNEB) |
 | `detect(url)` | функция | Проверяет, является ли URL этим источником. Возвращает `true/false` |
-| `parse(url)` | функция | Парсит URL и возвращает объект с извлеченными данными или `null` |
+| `parse(url, extra)` | функция | Парсит URL и возвращает объект с извлеченными данными или `null` |
 | `generateUrl(parsed)` | функция | Формирует URL для скачивания на основе распарсенных данных |
-| `getFilename(parsed)` | функция | Возвращает имя файла для сохранения |
+| `getFilename(parsed)` | функция | Возвращает имя файла (автоматически санитизируется) |
 | `displayText(parsed)` | функция | Возвращает HTML текст для отображения извлеченных данных |
+
+### Опциональные
+
+| Параметр | Тип | Описание |
+|----------|-----|---------|
+| `needsPageScan` | boolean | Нужно ли сканировать DOM страницы перед парсингом |
+| `scanPage(url, tabId)` | функция | Извлекает данные из DOM страницы (для SPA и т.п.) |
+| `directDownload` | boolean | Скачивание через fetch в контексте страницы (для cookies домена) |
+
+## Санитизация имён файлов
+
+Функция `sanitizeFilename()` в `sources/index.js` автоматически применяется к результату `getFilename()`. Она удаляет символы, недопустимые в файловых системах: `\ / : * ? " < > | ,` и обрезает пробелы по краям.
+
+Вам **не нужно** заботиться о санитизации в `getFilename()` — это происходит автоматически.
 
 ## Примеры
 
 ### Пример 1: Источник с простым кодом
 
 ```javascript
-myarchive: {
+export const myarchive = {
   name: 'My Archive',
   needsAuth: false,
   detect: (url) => url.includes('archive.mysite.com'),
@@ -86,13 +113,13 @@ myarchive: {
   generateUrl: (parsed) => `https://archive.mysite.com/api/download/${parsed.code}`,
   getFilename: (parsed) => parsed.code,
   displayText: (parsed) => `Document ID: ${parsed.code}`
-}
+};
 ```
 
 ### Пример 2: Источник с несколькими параметрами
 
 ```javascript
-mybookbase: {
+export const mybookbase = {
   name: 'My Book Base',
   needsAuth: true,
   detect: (url) => url.includes('books.mybookbase.net'),
@@ -113,28 +140,32 @@ mybookbase: {
     return `${parsed.bookId}_${paddedPage}`;
   },
   displayText: (parsed) => `Book: ${parsed.bookId}<br/>Page: ${parsed.pageNum}`
-}
+};
 ```
 
 ## Как это работает?
 
 1. **Когда пользователь открывает popup:**
    - Расширение получает текущий URL
-   - Функция `detectSource()` проходит по всем источникам и вызывает их `detect()` функции
+   - Функция `detectSource()` в `sources/index.js` проходит по всем источникам и вызывает их `detect()` функции
    - Находит первый совпадающий источник
 
-2. **Парсинг URL:**
+2. **Сканирование страницы (опционально):**
+   - Если у источника `needsPageScan: true`, вызывается `scanPage()`
+   - Результат передаётся в `parse()` как параметр `extra`
+
+3. **Парсинг URL:**
    - Вызывается функция `parse()` найденного источника
    - Извлекаются нужные данные (коды, номера, параметры и т.д.)
 
-3. **Формирование URL для скачивания:**
+4. **Формирование URL для скачивания:**
    - Вызывается `generateUrl()` с распарсенными данными
    - Создается готовый URL для загрузки
 
-4. **Отображение и загрузка:**
-   - `getFilename()` определяет, как назвать файл
+5. **Отображение и загрузка:**
+   - `getFilename()` определяет имя файла → `sanitizeFilename()` очищает его
    - `displayText()` показывает информацию в UI
-   - Service Worker использует `needsAuth` для определения способа загрузки
+   - Способ загрузки определяется по `needsAuth` и `directDownload`
 
 ## Типы аутентификации
 
@@ -150,29 +181,36 @@ mybookbase: {
 - Пример: RusNEB
 - В Service Worker: без опции credentials
 
+### Прямая загрузка (directDownload: true)
+- fetch выполняется в контексте страницы (`world: 'MAIN'`)
+- Автоматически включает cookies домена
+- Пример: Яндекс Архивы (cookies ya.ru)
+
 ## Проверка правильности
 
 Убедитесь, что:
 1. ✅ Функция `detect()` правильно определяет URL источника
 2. ✅ Функция `parse()` корректно извлекает данные из URL
 3. ✅ Функция `generateUrl()` возвращает валидный URL для API
-4. ✅ Функция `getFilename()` возвращает правильное имя файла
+4. ✅ Функция `getFilename()` возвращает осмысленное имя файла
 5. ✅ Параметр `needsAuth` установлен правильно
 6. ✅ Тестирование: откройте URL источника и проверьте результат в popup
 
 ## Трублшутинг
 
 **Расширение не распознает мой источник:**
-- Проверьте функцию `detect()` - она должна возвращать `true` для вашего URL
+- Проверьте функцию `detect()` — она должна возвращать `true` для вашего URL
+- Проверьте, что источник зарегистрирован в `sources/index.js`
 
 **Ошибка "не удалось распарсить URL":**
-- Функция `parse()` возвращает `null` - проверьте логику парсинга
+- Функция `parse()` возвращает `null` — проверьте логику парсинга
 - Убедитесь, что URL соответствует ожидаемому формату
 
 **Ошибка при загрузке:**
 - Проверьте, что `generateUrl()` возвращает валидный URL
-- Проверьте параметр `needsAuth` - может ли API быть доступна без cookies?
+- Проверьте параметр `needsAuth` — может ли API быть доступна без cookies?
 
 **Неправильное имя файла:**
-- Проверьте функцию `getFilename()` - она должна возвращать строку
+- Проверьте функцию `getFilename()` — она должна возвращать строку
 - Для нумерованных файлов используйте `.padStart(4, '0')` как в RusNEB
+- Спецсимволы удаляются автоматически через `sanitizeFilename()`

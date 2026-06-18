@@ -1,6 +1,6 @@
 # 📄 Загрузчик документов geneadb
 
-**Версия:** 2026.06.13.01  
+**Версия:** 2026.06.18.01  
 **Продукт:** Генеалогический портал [geneadb.com](https://geneadb.com)
 
 ---
@@ -11,11 +11,13 @@
 
 ### ✨ Главные возможности
 
-- 🔍 **Автоматический парсинг URL** - расширение самостоятельно определяет источник и извлекает нужные данные
-- 📥 **Загрузка документов** - скачивание файлов с использованием текущей сессии браузера
-- 🎨 **6 цветовых тем** - красивые и спокойные палитры для работы с архивами
-- 🏗️ **Модульная архитектура** - легко добавлять новые источники без изменения основного кода
-- 🔐 **Безопасность** - использование cookies браузера вместо хранения пароля
+- 🔍 **Автоматический парсинг URL** — расширение самостоятельно определяет источник и извлекает нужные данные
+- 📥 **Загрузка документов** — скачивание файлов с использованием текущей сессии браузера
+- 📦 **Пакетное скачивание серий** — все кадры серии FamilySearch одним нажатием
+- 🛡️ **Санитизация имён файлов** — автоматическое удаление недопустимых символов из имён
+- 🎨 **6 цветовых тем** — красивые и спокойные палитры для работы с архивами
+- 🏗️ **Модульная архитектура** — каждый источник в отдельном ES-модуле, легко добавлять новые
+- 🔐 **Безопасность** — использование cookies браузера вместо хранения пароля
 
 ---
 
@@ -28,6 +30,8 @@
    - `popup.html`
    - `popup.js`
    - `background.js`
+   - `utils.js`
+   - `sources/` (вся папка)
    - `vrodu.svg`
    - `icon16.png`, `icon32.png`, `icon48.png`, `icon128.png`
 
@@ -146,8 +150,14 @@
 geneadb-downloader/
 ├── manifest.json           # Конфигурация расширения
 ├── popup.html              # Интерфейс приложения
-├── popup.js                # Основная логика
-├── background.js           # Service Worker для загрузок
+├── popup.js                # Основная логика UI и темы
+├── background.js           # Service Worker для загрузок и серий
+├── utils.js                # Утилиты: debugLog(), runInPage()
+├── sources/                # Модули источников (ES-модули)
+│   ├── index.js            # Реестр, detectSource(), parseUrl(), sanitizeFilename()
+│   ├── familysearch.js     # FamilySearch + пакетное скачивание серий
+│   ├── rusneb.js           # RusNEB
+│   └── yandex.js           # Яндекс Архивы (SPA, Next.js)
 ├── vrodu.svg               # Логотип ВРДУ (источник иконки, шапка попапа)
 ├── icon16/32/48/128.png    # Иконки расширения для панели Chrome
 ├── vuetify-themes.js       # Конфиг тем для Vuetify
@@ -156,7 +166,8 @@ geneadb-downloader/
     ├── README.md                      # Этот файл
     ├── ARCHITECTURE.md                # Архитектура проекта
     ├── SOURCES_DOCUMENTATION.md       # Добавление источников
-    └── THEMES_README.md               # Система тем
+    ├── THEMES_README.md               # Система тем
+    └── CHANGELOG.md                   # История изменений
 ```
 
 ---
@@ -165,23 +176,27 @@ geneadb-downloader/
 
 ### Добавление нового источника
 
-Добавить новый источник **очень просто**! Отредактируйте `popup.js` и добавьте объект конфигурации:
+Добавить новый источник **очень просто**! Создайте файл в `sources/` и зарегистрируйте его:
+
+**1. Создайте `sources/mysource.js`:**
 
 ```javascript
-const sources = {
-  familysearch: { /* ... */ },
-  rusneb: { /* ... */ },
-  
-  mysource: {
-    name: 'My Source',
-    needsAuth: false,
-    detect: (url) => url.includes('mysource.com'),
-    parse: (url) => { /* ваша логика */ },
-    generateUrl: (parsed) => { /* ваша логика */ },
-    getFilename: (parsed) => { /* ваша логика */ },
-    displayText: (parsed) => { /* ваша логика */ }
-  }
+export const mysource = {
+  name: 'My Source',
+  needsAuth: false,
+  detect: (url) => url.includes('mysource.com'),
+  parse: (url) => { /* ваша логика */ },
+  generateUrl: (parsed) => { /* ваша логика */ },
+  getFilename: (parsed) => { /* имя файла (санитизируется автоматически) */ },
+  displayText: (parsed) => { /* ваша логика */ }
 };
+```
+
+**2. Добавьте в `sources/index.js`:**
+
+```javascript
+import { mysource } from './mysource.js';
+export const sources = { familysearch, rusneb, yandex, mysource };
 ```
 
 Подробнее: [SOURCES_DOCUMENTATION.md](./SOURCES_DOCUMENTATION.md)
@@ -273,7 +288,7 @@ const themeDefinitions = {
 
 Версия указана в формате: **YYYY.MM.DD.NN**
 
-Текущая версия: **2026.06.13.01**
+Текущая версия: **2026.06.18.01**
 
 - `2026` - год
 - `03` - месяц (март)
