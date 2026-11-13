@@ -8,8 +8,10 @@ popup.js                          ← Основная логика UI, темы
 ├─ sources/index.js               ← Реестр источников, detectSource(), parseUrl()
 │  ├─ sources/familysearch.js     ← Источник FamilySearch + серии
 │  ├─ sources/rusneb.js           ← Источник RusNEB
-│  └─ sources/yandex.js           ← Источник Яндекс Архивы
+│  ├─ sources/yandex-v2.js        ← Яндекс Архивы V2 (ARCHIVE_ABBR, имя из крошек)
+│  └─ sources/yandex.js           ← Яндекс Архивы, старый механизм (пока сохранён)
 │
+├─ yandex-hook.js                 ← Content script (MAIN world) на yandex.ru/archive
 ├─ utils.js                       ← debugLog(), runInPage()
 ├─ background.js                  ← Service Worker для загрузок и серий
 └─ popup.html                     ← Интерфейс с темами
@@ -39,6 +41,7 @@ sanitizeFilename() очищает имя файла
          ↓
 Пользователь нажимает "Скачать"
          ↓
+source.download() — если источник его определяет (Яндекс V2), иначе
 downloadImage() / downloadDirect() с параметром needsAuth
   • needsAuth: true  → Service Worker с cookies
   • needsAuth: false → без аутентификации
@@ -60,12 +63,13 @@ const newSource = {
 
   // Опциональные
   needsPageScan: boolean,            // Нужно ли сканировать страницу перед парсингом?
-  scanPage: (url, tabId) => object,  // Сканирование DOM страницы
-  directDownload: boolean            // Скачивание через fetch в контексте страницы
+  scanPage: (tab) => object,         // Сканирование DOM страницы
+  directDownload: boolean,           // Скачивание через fetch в контексте страницы
+  download: async (tab, onStatus) => string  // Своё скачивание целиком; возвращает текст для статуса
 }
 ```
 
-## Три типа загрузки
+## Типы загрузки
 
 ### 1. С аутентификацией (needsAuth: true)
 ```
@@ -83,10 +87,56 @@ Service Worker отправляет: обычный fetch без credentials
 
 ### 3. Прямая загрузка (directDownload: true)
 ```
-Пример: Яндекс Архивы
+Пример: старый механизм Яндекс Архивов (sources/yandex.js)
 fetch выполняется в контексте страницы (world: 'MAIN')
 Результат: Используются cookies ya.ru
 ```
+
+### 4. Своё скачивание источника (download)
+```
+Пример: Яндекс Архивы V2 (sources/yandex-v2.js)
+popup.js вызывает source.download(tab, onStatus) вместо стандартной загрузки
+```
+
+## Яндекс Архивы V2: перехват оригинала
+
+Оригинал скана грузится страницей через
+`fetch('/archive/api/image?id=<imageId>&type=original&exp=<unix>&sig=<подпись>')`
+с заголовками `X-Archive-Image-Token`, `X-Requested-With`, `X-Retpath-Y`.
+Подпись живёт несколько минут, без заголовков сервер отвечает 403, поэтому
+повторить запрос из расширения нельзя — ответ перехватывается в самой странице.
+
+```
+yandex-hook.js (MAIN world, document_start)
+  • оборачивает window.fetch и XMLHttpRequest
+  • запросы type=preview|original → idByPath[location.pathname] = imageId
+  • ответ type=original → response.clone().blob() → кэш Map<imageId, Blob>
+    (+ URL и заголовки запроса для повтора)
+  • ответ странице возвращается без изменений
+         ↕ window.postMessage  GENEADB_YA_REQ { op: 'status' | 'get' }
+         ↕                     GENEADB_YA_RES { ... }   (проверка event.source === window)
+sources/yandex-v2.js (функции, внедряемые в isolated world через executeScript)
+  • psReadBreadcrumbs() — хлебные крошки → архив, фонд, опись, дело, кадр
+  • psAskHook(op)       — запрос к хуку
+         ↓
+op 'get' в хуке:
+  1. blob текущего кадра есть в кэше → отдать
+  2. есть сохранённый запрос original → повторить с теми же заголовками
+     (403 = подпись истекла → дальше)
+  3. нажать «+» в просмотрщике (поиск по aria-label/title/тексту/классам),
+     ждать blob до 15 с
+  4. иначе — ошибка (preview молча не скачивается)
+         ↓
+blob → data URL → popup → background.js { action: 'downloadDataUrl' }
+         ↓
+chrome.downloads.download({ url: dataUrl, filename, conflictAction: 'uniquify' })
+```
+
+**Имя файла:** `<Архив>.<фонд>-<опись>-<дело>.<кадр>.jpg`, например `ГАСмО.48-4-825.643.jpg`.
+Архив сокращается по словарю `ARCHIVE_ABBR` в начале `sources/yandex-v2.js`; если его там нет —
+полное название без пробелов и `console.warn`. Если крошек нет — номер кадра из URL.
+Удаляются символы `\ / : * ? " < > |`. Расширение `.jpg` добавляется в источнике,
+а не в background (в отличие от других источников с `.jpeg`).
 
 ## Как добавить новый источник?
 
@@ -156,11 +206,16 @@ export const sources = { familysearch, rusneb, yandex, mynewsource };
 - **Загружает:** публичный доступ (needsAuth: false)
 - **Файл:** `код_0001.jpeg` (номер с нулями)
 
-### Яндекс Архивы (sources/yandex.js)
-- **Вход:** `https://ya.ru/archive/catalog/{каталог}/{N}`
-- **Парсит:** метаданные из `__NEXT_DATA__`, SPA-навигация через Next.js data API
-- **Загружает:** fetch в контексте страницы (directDownload: true)
-- **Файл:** реальное архивное имя из `namepath` (например `609-2-95-00000038.jpeg`)
+### Яндекс Архивы V2 (sources/yandex-v2.js + yandex-hook.js)
+- **Вход:** `https://yandex.ru/archive/catalog/{uuid}/{N}`
+- **Парсит:** хлебные крошки страницы; imageId — из перехваченных запросов
+- **Загружает:** перехват ответа страницы в MAIN world, при необходимости — автонажатие «+»
+- **Файл:** `ГАСмО.48-4-825.643.jpg`
+
+### Яндекс Архивы, старый механизм (sources/yandex.js)
+- Сохранён на время перехода, в реестре стоит после `yandexV2` и не срабатывает
+- Метаданные из `__NEXT_DATA__`, URL оригинала из `performance` entries
+  (больше не работает: сервер требует заголовки, которых нет при повторном запросе)
 
 ## Тестирование
 
