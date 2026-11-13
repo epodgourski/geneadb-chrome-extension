@@ -21,6 +21,14 @@
       "128": "icon128.png"
     }
   },
+  "content_scripts": [
+    {
+      "matches": ["https://yandex.ru/archive/*", "https://ya.ru/archive/*"],
+      "js": ["yandex-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

@@ -108,6 +108,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // Яндекс V2: картинка уже получена в странице, приходит как data URL.
+  // Имя файла передаётся точно (кириллица, точки), без добавления расширения.
+  if (request.action === 'downloadDataUrl') {
+    chrome.downloads
+      .download({
+        url: request.dataUrl,
+        filename: request.filename,
+        conflictAction: 'uniquify',
+        saveAs: false
+      })
+      .then((downloadId) => sendResponse({ success: true, downloadId }))
+      .catch((e) => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
   if (request.action === 'startSeries') {
     getSeries().then((s) => {
       if (s && s.running) {

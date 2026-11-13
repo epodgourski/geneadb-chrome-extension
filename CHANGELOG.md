@@ -6,6 +6,26 @@
 
 ---
 
+## [2026.11.13.01] — 2026-11-13
+
+### Добавлено
+- **Яндекс Архивы V2** (`sources/yandex-v2.js` + `yandex-hook.js`). Сайт отдаёт оригинал
+  (`/archive/api/image?...&type=original&exp&sig`) только с заголовками
+  `X-Archive-Image-Token` и др., повтор запроса извне даёт 403. Новый способ:
+  1. `yandex-hook.js` — content script в `MAIN` world (`document_start`), оборачивает
+     `fetch` и `XMLHttpRequest`, кэширует Blob оригинала по `imageId`, привязывает
+     `imageId` к `location.pathname` (по запросам `preview`/`original`).
+  2. По кнопке: кэш → повтор запроса с сохранёнными заголовками → нажатие «+»
+     в просмотрщике и ожидание оригинала до 15 с → понятная ошибка.
+  3. Связь со страницей через `window.postMessage` (`GENEADB_YA_REQ`/`GENEADB_YA_RES`).
+  4. Скачивание в service worker (`downloadDataUrl`): data URL, точное имя,
+     `conflictAction: "uniquify"`.
+  5. Имя файла из хлебных крошек: `<Архив>.<фонд>-<опись>-<дело>.<кадр>.jpg`,
+     например `ГАСмО.48-4-825.643.jpg`. Сокращения архивов — `ARCHIVE_ABBR`.
+- Старый источник `sources/yandex.js` пока сохранён (в реестре стоит после V2).
+
+---
+
 ## [2026.06.18.01] — 2026-06-18
 
 ### Добавлено

@@ -284,6 +284,30 @@ async function downloadDirect(resultUrl, filename, tabId) {
   );
 }
 
+// Источник со своим методом download (Яндекс V2): сам получает картинку и имя файла.
+async function downloadBySource(sourceConfig, tab) {
+  const status = document.getElementById('status');
+  const setInfo = (text) => {
+    status.textContent = text;
+    status.classList.remove('success', 'error');
+    status.classList.add('info');
+  };
+  try {
+    setInfo('⏳ Загрузка документа...');
+    const savedAs = await sourceConfig.download(tab, setInfo);
+    status.textContent = `✓ Документ скачан! (${savedAs})`;
+    status.classList.remove('info', 'error');
+    status.classList.add('success');
+    setTimeout(() => { status.classList.remove('success'); }, 3000);
+  } catch (error) {
+    console.error('Ошибка при загрузке:', error);
+    debugLog('Ошибка: ' + error.message);
+    status.textContent = `✗ Ошибка: ${error.message}`;
+    status.classList.remove('info', 'success');
+    status.classList.add('error');
+  }
+}
+
 async function downloadImage(resultUrl, filename, needsAuth = true) {
   try {
     const status = document.getElementById('status');
@@ -465,7 +489,9 @@ async function processCurrentTab(tab) {
     downloadBtn.onclick = async () => {
       downloadBtn.disabled = true;
       downloadBtn.textContent = '⏳ Загрузка...';
-      if (currentSourceConfig.directDownload) {
+      if (currentSourceConfig.download) {
+        await downloadBySource(currentSourceConfig, tab);
+      } else if (currentSourceConfig.directDownload) {
         await downloadDirect(result.downloadUrl, result.filename, tab.id);
       } else {
         await downloadImage(result.downloadUrl, result.filename, result.needsAuth);
